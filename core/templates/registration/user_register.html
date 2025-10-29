@@ -1,0 +1,338 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}User Registration - Smart Transport{% endblock %}
+
+{% block extra_head %}
+<style>
+    .register-page {
+        min-height: calc(100vh - 200px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem 1rem;
+        background-color: #F3F4F6;
+    }
+
+    .register-card {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        max-width: 500px;
+        width: 100%;
+        overflow: hidden;
+        animation: slideUp 0.4s ease-out;
+    }
+
+    @keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(30px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .register-header {
+        background: linear-gradient(135deg, #2563EB 0%, #1E40AF 100%);
+        color: white;
+        text-align: center;
+        padding: 2.5rem 2rem;
+    }
+
+    .register-header h1 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 0 0 0.5rem 0;
+        color: white;
+    }
+
+    .register-header p {
+        font-size: 0.95rem;
+        margin: 0;
+        color: rgba(255, 255, 255, 0.9);
+    }
+
+    .info-banner {
+        background-color: #DBEAFE;
+        border-left: 4px solid #2563EB;
+        padding: 1rem;
+        margin: 1.5rem 0;
+        border-radius: 0 8px 8px 0;
+    }
+
+    .info-banner p {
+        margin: 0;
+        font-size: 0.875rem;
+        color: #1E40AF;
+        line-height: 1.5;
+    }
+
+    .info-banner strong {
+        font-weight: 600;
+    }
+
+    .register-form {
+        padding: 2.5rem;
+    }
+
+    .form-group {
+        margin-bottom: 1.25rem;
+    }
+
+    .form-label {
+        display: block;
+        font-weight: 600;
+        color: #1F2937;
+        margin-bottom: 0.5rem;
+        font-size: 0.95rem;
+    }
+
+    .form-input {
+        width: 100%;
+        padding: 0.875rem 1rem;
+        border: 2px solid #E5E7EB;
+        border-radius: 8px;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+        background-color: #F9FAFB;
+        font-family: inherit;
+        box-sizing: border-box;
+    }
+
+    .form-input:focus {
+        outline: none;
+        border-color: #2563EB;
+        background-color: white;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .form-input::placeholder {
+        color: #9CA3AF;
+    }
+
+    .form-help {
+        font-size: 0.8rem;
+        color: #6B7280;
+        margin-top: 0.35rem;
+        display: block;
+    }
+
+    .submit-btn {
+        width: 100%;
+        padding: 1rem;
+        background: linear-gradient(135deg, #2563EB 0%, #1E40AF 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        font-family: inherit;
+        margin-top: 1.5rem;
+    }
+
+    .submit-btn:hover {
+        background: linear-gradient(135deg, #1E40AF 0%, #1E3A8A 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(37, 99, 235, 0.4);
+    }
+
+    .submit-btn:active {
+        transform: translateY(0);
+    }
+
+    .links-section {
+        margin-top: 1.5rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid #E5E7EB;
+    }
+
+    .login-prompt {
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+
+    .login-prompt p {
+        color: #6B7280;
+        font-size: 0.9rem;
+        margin: 0 0 0.5rem 0;
+    }
+
+    .login-prompt a {
+        color: #2563EB;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 0.95rem;
+        transition: color 0.2s;
+    }
+
+    .login-prompt a:hover {
+        color: #1E40AF;
+        text-decoration: underline;
+    }
+
+    .driver-link {
+        text-align: center;
+        margin-top: 1rem;
+    }
+
+    .driver-link p {
+        color: #6B7280;
+        font-size: 0.875rem;
+        margin: 0 0 0.25rem 0;
+    }
+
+    .driver-link a {
+        color: #2563EB;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 0.875rem;
+        transition: color 0.2s;
+    }
+
+    .driver-link a:hover {
+        color: #1E40AF;
+        text-decoration: underline;
+    }
+
+    .alert-message {
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        display: flex;
+        align-items: start;
+        gap: 0.75rem;
+        animation: slideDown 0.3s ease-out;
+        font-size: 0.95rem;
+    }
+
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .alert-success {
+        background-color: #D1FAE5;
+        border-left: 4px solid #10B981;
+        color: #065F46;
+    }
+
+    .alert-error {
+        background-color: #FEE2E2;
+        border-left: 4px solid #EF4444;
+        color: #991B1B;
+    }
+
+    .alert-icon {
+        flex-shrink: 0;
+        font-size: 1.25rem;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 640px) {
+        .register-page {
+            padding: 2rem 1rem;
+        }
+
+        .register-header {
+            padding: 2rem 1.5rem;
+        }
+
+        .register-header h1 {
+            font-size: 1.75rem;
+        }
+
+        .register-form {
+            padding: 2rem 1.5rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="register-page">
+    <div class="register-card">
+        <div class="register-header">
+            <h1>User Registration</h1>
+            <p>Create your account to get started</p>
+        </div>
+
+        <form method="post" class="register-form">
+            {% csrf_token %}
+            
+            <div class="info-banner">
+                <p>
+                    📧 <strong>Email Verification Required</strong><br>
+                    We'll send a verification code to your email address.
+                </p>
+            </div>
+            
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert-message {% if message.tags == 'error' %}alert-error{% else %}alert-success{% endif %}">
+                        <span class="alert-icon">
+                            {% if message.tags == 'error' %}
+                                ⚠️
+                            {% else %}
+                                ✓
+                            {% endif %}
+                        </span>
+                        <span>{{ message }}</span>
+                    </div>
+                {% endfor %}
+            {% endif %}
+            
+            <div class="form-group">
+                <label class="form-label" for="username">Username *</label>
+                <input type="text" id="username" name="username" class="form-input" 
+                       placeholder="Choose a username" required autofocus>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="email">Email Address * 📧</label>
+                <input type="email" id="email" name="email" class="form-input" 
+                       placeholder="your.email@gmail.com" required>
+                <span class="form-help">We'll send a verification code to this email</span>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="password">Password *</label>
+                <input type="password" id="password" name="password" class="form-input" 
+                       placeholder="Enter password (min 6 characters)" required minlength="6">
+                <span class="form-help">At least 6 characters</span>
+            </div>
+
+            <button type="submit" class="submit-btn">
+                📧 Send Verification Code
+            </button>
+
+            <div class="links-section">
+                <div class="login-prompt">
+                    <p>Already have an account?</p>
+                    <a href="{% url 'user_login' %}">Login here</a>
+                </div>
+
+                <div class="driver-link">
+                    <p>Are you a driver?</p>
+                    <a href="{% url 'driver_register' %}">Register as Driver</a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

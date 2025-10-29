@@ -1,0 +1,1404 @@
+from .forms import DriverRegisterForm
+from .models import VehicleDocument, Bus, BusRoute, EmailOTP
+from .utils import send_otp_email
+from django.core.mail import send_mail
+import json
+
+def driver_register(request):
+    if request.method == 'POST':
+        # Check if this is OTP verification step
+        if 'verify_otp' in request.POST:
+            return verify_driver_otp(request)
+        
+        # Step 1: Send OTP
+        form = DriverRegisterForm(request.POST, request.FILES)
+        if form.is_valid():
+            email = request.POST.get('email')
+            
+            # Check if email already exists
+            if User.objects.filter(email=email).exists():
+                messages.error(request, 'Email already registered.')
+                return redirect('driver_register')
+            
+            # Generate and send OTP
+            otp_code = EmailOTP.generate_otp()
+            
+            # Delete old OTPs for this email
+            EmailOTP.objects.filter(email=email).delete()
+            
+            # Create new OTP
+            EmailOTP.objects.create(email=email, otp_code=otp_code)
+            
+            # Send email
+            if send_otp_email(email, otp_code):
+                # Store form data in session
+                request.session['driver_registration_data'] = {
+                    'username': request.POST.get('username'),
+                    'email': email,
+                    'password': request.POST.get('password'),
+                    'phone': request.POST.get('phone'),
+                    'vehicle_number': request.POST.get('vehicle_number'),
+                    'route_id': request.POST.get('route'),
+                    'total_seats': request.POST.get('total_seats'),
+                }
+                
+                messages.success(request, f'Verification code sent to {email}. Please check your inbox.')
+                return render(request, 'registration/driver_verify_otp.html', {'email': email})
+            else:
+                messages.error(request, 'Failed to send verification email. Please try again.')
+        else:
+            messages.error(request, 'Please correct the errors below.')
+    else:
+        form = DriverRegisterForm()
+    
+    # Get all active routes for the dropdown
+        routes = BusRoute.objects.filter(is_active=True)
+
+    return render(request, 'registration/driver_register.html', {
+    'form': form,
+    'routes': routes
+            })
+
+
+def verify_driver_otp(request):
+    """Verify OTP and complete registration"""
+    entered_otp = request.POST.get('otp_code', '').strip()
+    registration_data = request.session.get('driver_registration_data')
+    
+    if not registration_data:
+        messages.error(request, 'Session expired. Please register again.')
+        return redirect('driver_register')
+    
+    email = registration_data['email']
+    
+    # Get OTP from database
+    try:
+        otp_record = EmailOTP.objects.filter(email=email, is_verified=False).latest('created_at')
+    except EmailOTP.DoesNotExist:
+        messages.error(request, 'Invalid or expired OTP. Please register again.')
+        return redirect('driver_register')
+    
+    # Check if OTP is expired
+    if otp_record.is_expired():
+        messages.error(request, 'OTP has expired. Please register again.')
+        return redirect('driver_register')
+    
+    # Verify OTP
+    if otp_record.otp_code != entered_otp:
+        messages.error(request, 'Invalid OTP. Please try again.')
+        return render(request, 'registration/driver_verify_otp.html', {'email': email})
+    
+    # OTP is correct - Complete registration
+    try:
+        # Create user
+        user = User.objects.create_user(
+            username=registration_data['username'],
+            email=registration_data['email'],
+            password=registration_data['password']
+        )
+        
+        # Create driver
+        driver = Driver.objects.create(
+            user=user,
+            phone=registration_data['phone'],
+            vehicle_number=registration_data['vehicle_number']
+        )
+        
+        # Handle vehicle documents (if any were uploaded)
+        files = request.FILES.getlist('vehicle_documents')
+        for f in files:
+            VehicleDocument.objects.create(driver=driver, document=f)
+        
+        # Create bus
+        route = BusRoute.objects.get(id=registration_data['route_id'])
+        bus = Bus.objects.create(
+            number_plate=driver.vehicle_number,
+            total_seats=int(registration_data['total_seats']),
+            driver=driver,
+            route=route
+        )
+        bus.create_seats()
+        
+        # Mark OTP as verified
+        otp_record.is_verified = True
+        otp_record.save()
+        
+        # Clear session data
+        del request.session['driver_registration_data']
+        
+        messages.success(request, 'Email verified! Registration successful. You can now login.')
+        return redirect('driver_login')
+        
+    except Exception as e:
+        messages.error(request, f'Registration failed: {str(e)}')
+        return redirect('driver_register')
+    
+
+def driver_forgot_password(request):
+    """Driver forgot password - send OTP"""
+    if request.method == 'POST':
+        email = request.POST.get('email', '').strip()
+        
+        if not email:
+            messages.error(request, 'Please enter your email address.')
+            return redirect('driver_forgot_password')
+        
+        # Check if email exists and belongs to a driver
+        try:
+            user = User.objects.get(email=email)
+            if not hasattr(user, 'driver_profile'):
+                messages.error(request, 'No driver account found with this email.')
+                return redirect('driver_forgot_password')
+        except User.DoesNotExist:
+            messages.error(request, 'No account found with this email.')
+            return redirect('driver_forgot_password')
+        
+        # Generate and send OTP
+        otp_code = EmailOTP.generate_otp()
+        
+        # Delete old OTPs for this email
+        EmailOTP.objects.filter(email=email).delete()
+        
+        # Create new OTP
+        EmailOTP.objects.create(email=email, otp_code=otp_code)
+        
+        # Send email with different message
+        subject = 'Smart Transport - Password Reset Code'
+        message = f'''
+Hello {user.username},
+
+You requested to reset your password for your Smart Transport driver account.
+
+Your password reset code is:
+
+{otp_code}
+
+This code will expire in 10 minutes.
+
+If you didn't request this, please ignore this email and your password will remain unchanged.
+
+Best regards,
+Smart Transport Team
+        '''
+        
+        try:
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [email],
+                fail_silently=False,
+            )
+            
+            # Store email in session
+            request.session['reset_password_email'] = email
+            
+            messages.success(request, f'Password reset code sent to {email}')
+            return render(request, 'registration/driver_reset_otp.html', {'email': email})
+            
+        except Exception as e:
+            messages.error(request, 'Failed to send email. Please try again.')
+            return redirect('driver_forgot_password')
+    
+    return render(request, 'registration/driver_forgot_password.html')
+
+
+def driver_verify_reset_otp(request):
+    """Verify OTP for password reset"""
+    if request.method == 'POST':
+        entered_otp = request.POST.get('otp_code', '').strip()
+        email = request.session.get('reset_password_email')
+        
+        if not email:
+            messages.error(request, 'Session expired. Please try again.')
+            return redirect('driver_forgot_password')
+        
+        # Get OTP from database
+        try:
+            otp_record = EmailOTP.objects.filter(email=email, is_verified=False).latest('created_at')
+        except EmailOTP.DoesNotExist:
+            messages.error(request, 'Invalid or expired OTP.')
+            return redirect('driver_forgot_password')
+        
+        # Check if OTP is expired
+        if otp_record.is_expired():
+            messages.error(request, 'OTP has expired. Please request a new one.')
+            return redirect('driver_forgot_password')
+        
+        # Verify OTP
+        if otp_record.otp_code != entered_otp:
+            messages.error(request, 'Invalid OTP. Please try again.')
+            return render(request, 'registration/driver_reset_otp.html', {'email': email})
+        
+        # OTP is correct - Mark as verified and show new password form
+        otp_record.is_verified = True
+        otp_record.save()
+        
+        return render(request, 'registration/driver_new_password.html', {'email': email})
+    
+    return redirect('driver_forgot_password')
+
+
+def driver_set_new_password(request):
+    """Set new password after OTP verification"""
+    if request.method == 'POST':
+        email = request.session.get('reset_password_email')
+        new_password = request.POST.get('new_password', '').strip()
+        confirm_password = request.POST.get('confirm_password', '').strip()
+        
+        if not email:
+            messages.error(request, 'Session expired. Please try again.')
+            return redirect('driver_forgot_password')
+        
+        # Validation
+        if not new_password or not confirm_password:
+            messages.error(request, 'Both password fields are required.')
+            return render(request, 'registration/driver_new_password.html', {'email': email})
+        
+        if new_password != confirm_password:
+            messages.error(request, 'Passwords do not match.')
+            return render(request, 'registration/driver_new_password.html', {'email': email})
+        
+        if len(new_password) < 6:
+            messages.error(request, 'Password must be at least 6 characters long.')
+            return render(request, 'registration/driver_new_password.html', {'email': email})
+        
+        # Verify that OTP was verified for this email
+        verified_otp = EmailOTP.objects.filter(email=email, is_verified=True).exists()
+        if not verified_otp:
+            messages.error(request, 'Invalid request. Please verify OTP first.')
+            return redirect('driver_forgot_password')
+        
+        # Update password
+        try:
+            user = User.objects.get(email=email)
+            user.set_password(new_password)
+            user.save()
+            
+            # Clear session
+            del request.session['reset_password_email']
+            
+            messages.success(request, 'Password changed successfully! You can now login with your new password.')
+            return redirect('driver_login')
+            
+        except User.DoesNotExist:
+            messages.error(request, 'User not found.')
+            return redirect('driver_forgot_password')
+    
+    return redirect('driver_forgot_password')
+    
+from django.views.decorators.csrf import csrf_exempt
+import json
+import logging
+from django.shortcuts import render, redirect
+from django.contrib import messages
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
+from django.http import JsonResponse
+from django.contrib.auth.models import User
+from django.db import models
+from django.db.models import Q
+from .models import BusRoute, Driver, Bus, Seat, Stop
+from .models import Bookmark, PickupRequest, Message
+from django.views.decorators.http import require_POST
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+
+def homepage(request):
+    # Collect stops from all bus routes
+    stops = set()
+    routes = BusRoute.objects.filter(is_active=True)
+    for route in routes:
+        stops.update(route.get_stops_list())
+    stops = sorted(list(stops), key=lambda stop: stop.name)
+
+    buses_info = []
+    # Accept either a Stop ID or a stop name for pickup/destination.
+    raw_pickup = request.GET.get('pickup', '').strip() if 'pickup' in request.GET else ''
+    raw_destination = request.GET.get('destination', '').strip() if 'destination' in request.GET else ''
+    pickup_id = None
+    destination_id = None
+    # Try to interpret as integer IDs first
+    try:
+        if raw_pickup:
+            pickup_id = int(raw_pickup)
+    except Exception:
+        pickup_id = None
+    try:
+        if raw_destination:
+            destination_id = int(raw_destination)
+    except Exception:
+        destination_id = None
+    # If not IDs, try to resolve by Stop name (case-insensitive)
+    if pickup_id is None and raw_pickup:
+        s = Stop.objects.filter(name__iexact=raw_pickup).first()
+        if s:
+            pickup_id = s.id
+    if destination_id is None and raw_destination:
+        s2 = Stop.objects.filter(name__iexact=raw_destination).first()
+        if s2:
+            destination_id = s2.id
+    # whether to show buses already passed (toggle via query param)
+    show_passed = request.GET.get('show_passed', '0') == '1'
+    matching_routes = []
+    if raw_pickup and raw_destination:
+        for route in routes:
+            stops_objs = route.get_stops_list()
+            stops_ids = [s.id for s in stops_objs]
+            # if both pickup and destination IDs are known, match by id
+            if pickup_id and destination_id:
+                if pickup_id in stops_ids and destination_id in stops_ids:
+                    matching_routes.append(route)
+            else:
+                # fallback to name-based match (legacy)
+                stops_list = [stop.name.strip().lower() for stop in stops_objs]
+                if raw_pickup.strip().lower() in stops_list and raw_destination.strip().lower() in stops_list:
+                    matching_routes.append(route)
+
+        import math
+        def haversine(lat1, lon1, lat2, lon2):
+            R = 6371  # Earth radius in km
+            phi1 = math.radians(lat1)
+            phi2 = math.radians(lat2)
+            dphi = math.radians(lat2 - lat1)
+            dlambda = math.radians(lon2 - lon1)
+            a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+            return R * c
+
+        def get_stop_coords(stop_name):
+            # Try to resolve by Stop model first (case-insensitive)
+            try:
+                s = Stop.objects.filter(name__iexact=stop_name.strip()).first()
+                if s:
+                    return (s.latitude, s.longitude)
+            except Exception:
+                pass
+            # Fallbacks for a few common names
+            stop_coords = {
+                'kathmandu': (27.7172, 85.3240),
+                'lalitpur': (27.6644, 85.3188),
+                'bhaktapur': (27.6710, 85.4298),
+            }
+            return stop_coords.get(stop_name.lower())
+
+
+        for route in matching_routes:
+            # prefer the first assigned bus for this route; if no bus assigned, skip this route
+            bus = route.buses.first()
+            if not bus:
+                # no active bus for this route right now
+                continue
+            available_seats = bus.seats.filter(is_available=True).count() if bus else 0
+            eta = None
+            status = 'unknown'
+            bus_lat = getattr(bus, 'current_lat', None)
+            bus_lng = getattr(bus, 'current_lng', None)
+            has_live_location = bus and bus_lat is not None and bus_lng is not None
+
+            # Compute a simple straight-line ETA as fallback
+            if has_live_location:
+                # prefer resolving via Stop id then name
+                pickup_coords = None
+                if pickup_id:
+                    sp = Stop.objects.filter(id=pickup_id).first()
+                    if sp:
+                        pickup_coords = (sp.latitude, sp.longitude)
+                if not pickup_coords:
+                    pickup_coords = get_stop_coords(raw_pickup)
+                if pickup_coords:
+                    distance_km = haversine(bus_lat, bus_lng, pickup_coords[0], pickup_coords[1])
+                    avg_speed_kmh = getattr(settings, 'AVG_SPEED_KMH', 25)
+                    eta_seconds = int((distance_km / avg_speed_kmh) * 3600)
+                    if eta_seconds < 1:
+                        eta_seconds = 1
+                    eta = int((eta_seconds + 30) / 60)
+                else:
+                    import random
+                    eta = random.randint(2, 15)
+            else:
+                eta = None
+
+            # Determine passed using persisted counters or route-order when possible
+            passed_thresh = getattr(settings, 'ETA_PASSED_THRESHOLD_SECONDS', 30)
+            persisted_passed = getattr(bus, 'eta_passed_counter', 0) if bus else 0
+
+            route_order_passed = False
+            try:
+                if bus and bus.route and has_live_location:
+                    stops = bus.route.get_stops_list()
+                    # find pickup stop object in this route by name
+                    pickup_stop_obj = next((s for s in stops if s.name.strip().lower() == raw_pickup.strip().lower()), None)
+                    if not pickup_stop_obj:
+                        pickup_coords = get_stop_coords(raw_pickup)
+                        if pickup_coords:
+                            # match by coordinates within ~100m
+                            for s in stops:
+                                if abs(s.latitude - pickup_coords[0]) < 1e-3 and abs(s.longitude - pickup_coords[1]) < 1e-3:
+                                    pickup_stop_obj = s
+                                    break
+                    # if we have an id, prefer matching by id
+                    if pickup_id is not None:
+                        pickup_stop_obj = next((s for s in stops if s.id == pickup_id), pickup_stop_obj)
+                    if pickup_stop_obj:
+                        # Prefer computing nearest index from live location (more accurate). Fall back to persisted index when no live location.
+                        if has_live_location:
+                            nearest_idx = min(range(len(stops)), key=lambda i: haversine(bus_lat, bus_lng, stops[i].latitude, stops[i].longitude))
+                        else:
+                            nearest_idx = getattr(bus, 'nearest_stop_index', None)
+
+                        pickup_idx = next((i for i, s in enumerate(stops) if s.id == pickup_stop_obj.id), None)
+                        if pickup_idx is not None:
+                            # if bus index is after pickup index, it's passed
+                            if nearest_idx is not None and nearest_idx > pickup_idx:
+                                route_order_passed = True
+                            else:
+                                # compute forward distance along route
+                                def stop_distance(a, b):
+                                    return haversine(a.latitude, a.longitude, b.latitude, b.longitude)
+                                dist = haversine(bus_lat, bus_lng, stops[nearest_idx].latitude, stops[nearest_idx].longitude)
+                                i = nearest_idx
+                                while i != pickup_idx:
+                                    a = stops[i]
+                                    b = stops[(i + 1) % len(stops)]
+                                    dist += stop_distance(a, b)
+                                    i = (i + 1) % len(stops)
+                                avg_speed_kmh = getattr(settings, 'AVG_SPEED_KMH', 25)
+                                eta_seconds_route = int((dist / avg_speed_kmh) * 3600)
+                                if eta_seconds_route < 1:
+                                    eta_seconds_route = 1
+                                if eta_seconds_route <= passed_thresh:
+                                    route_order_passed = True
+            except Exception:
+                route_order_passed = False
+
+            # decide final status
+            if (persisted_passed and persisted_passed > 0) or route_order_passed:
+                status = 'passed'
+            else:
+                if eta is None:
+                    status = 'unknown'
+                else:
+                    caution_thresh = getattr(settings, 'ETA_CAUTION_THRESHOLD_SECONDS', 120)
+                    # if not passed then determine catchable/caution
+                    if eta * 60 <= passed_thresh:
+                        status = 'passed'
+                    elif eta * 60 <= caution_thresh:
+                        status = 'caution'
+                    else:
+                        status = 'catchable'
+
+            buses_info.append({
+                'route': route,
+                'bus': bus,
+                'eta': eta,
+                'eta_seconds': eta_seconds if has_live_location and pickup_coords else None,
+                'available_seats': available_seats,
+                'status': status,
+            })
+
+        # reorder and filter passed buses unless user asked to show_passed
+        order_map = {'catchable': 0, 'caution': 1, 'unknown': 1, 'passed': 2}
+        buses_info.sort(key=lambda x: (order_map.get(x.get('status'), 1), x.get('eta') or 9999))
+        if not show_passed:
+            buses_info = [b for b in buses_info if b.get('status') != 'passed']
+    context = {
+        'stops': stops,
+        'buses_info': buses_info,
+        'pickup': raw_pickup,
+        'destination': raw_destination,
+        'pickup_id': pickup_id,
+        'destination_id': destination_id,
+        'show_passed': show_passed,
+    }
+    return render(request, 'user/homepage.html', context)
+
+
+def driver_login(request):
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        user = authenticate(username=username, password=password)
+        if user:
+            if hasattr(user, 'driver_profile'):
+                login(request, user)
+                return redirect('driver_dashboard')
+            else:
+                messages.error(request, 'Not registered as a driver.')
+                return redirect('driver_login')
+        messages.error(request, 'Invalid credentials.')
+        return redirect('driver_login')
+    return render(request, 'registration/driver_login.html')
+
+
+@login_required
+def driver_dashboard(request):
+    if not hasattr(request.user, 'driver_profile'):
+        return redirect('homepage')
+    driver = request.user.driver_profile
+    bus = driver.buses.first()
+    seats = []
+    last_row_start = None
+    seat_grid_columns = []
+    route = bus.route if bus else None
+    if bus:
+        if request.method == 'POST' and not bus.seats.exists():
+            # Create seats if not already created
+            total_seats = int(request.POST.get('total_seats', bus.total_seats))
+            bus.total_seats = total_seats
+            bus.save()
+            bus.create_seats()
+    seats = list(bus.seats.order_by('seat_number').all())
+    # Layout seats with a left-side door gap and 6 columns total:
+    # columns: [door-gap, A-window, A-aisle, middle, B-aisle, B-window]
+    # Normal rows: 4 seats -> map to columns [2,3,5,6] (col 1 is door gap, col 4 is middle)
+    # Final back row: up to 5 seats across columns 2..6 (includes middle single seat)
+    last_row_start = bus.total_seats - 5 if bus.total_seats >= 5 else 0
+    seats_per_row = 4
+    col_map = [2, 3, 5, 6]
+    for idx, seat in enumerate(seats):
+        if idx < last_row_start:
+            row = (idx // seats_per_row) + 1
+            pos = idx % seats_per_row
+            col = col_map[pos]
+        else:
+            # final back row: place seats across columns 2..6 (col 1 reserved for door gap)
+            row = (last_row_start // seats_per_row) + 1 if last_row_start > 0 else (idx // seats_per_row) + 1
+            col = (idx - last_row_start) + 2
+            if col < 2:
+                col = 2
+            if col > 6:
+                col = 6
+        seat_grid_columns.append((seat, row, col))
+    context = {
+        'driver': driver,
+        'bus': bus,
+        'route': route,
+        'seats': seats,
+        'last_row_start': last_row_start,
+        'seat_grid_columns': seat_grid_columns,
+        # determine the last user who messaged this driver (for quick load)
+        'last_contact_user_id': None,
+    }
+    try:
+        # find last message where recipient is this driver (i.e., a user messaged the driver)
+        last_msg = Message.objects.filter(recipient=request.user).exclude(sender=request.user).order_by('-created_at').first()
+        if last_msg:
+            context['last_contact_user_id'] = last_msg.sender.id
+    except Exception:
+        # ignore failures
+        pass
+    return render(request, 'driver/dashboard.html', context)
+
+
+@login_required
+@require_POST
+def clear_chat(request, other_user_id):
+    # Allow either participant to clear (delete) messages between request.user and other_user_id
+    try:
+        other = User.objects.get(id=other_user_id)
+    except User.DoesNotExist:
+        return JsonResponse({'status': 'error', 'error': 'user not found'})
+    # Ensure the requester is one of the participants in existing conversation
+    # Delete all messages where (sender=request.user and recipient=other) OR (sender=other and recipient=request.user)
+    try:
+        qs = Message.objects.filter(
+            (Q(sender=request.user) & Q(recipient=other)) |
+            (Q(sender=other) & Q(recipient=request.user))
+        )
+        deleted_count, _ = qs.delete()
+        return JsonResponse({'status': 'success', 'deleted': deleted_count})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'error': str(e)})
+
+@csrf_exempt
+def toggle_seat(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            seat_id = data.get('seat_id')
+            seat = Seat.objects.get(id=seat_id)
+            seat.is_available = not seat.is_available
+            seat.save()
+            # Notify connected clients (users tracking this bus) about the seat change
+            try:
+                channel_layer = get_channel_layer()
+                payload = {
+                    'type': 'seat_update',
+                    'seat_id': seat.id,
+                    'is_available': seat.is_available,
+                    'seat_number': seat.seat_number,
+                    'bus_id': seat.bus.id,
+                }
+                async_to_sync(channel_layer.group_send)(f'bus_{seat.bus.id}', payload)
+            except Exception:
+                # non-fatal if channels not configured
+                logger.exception('Failed to broadcast seat_update for seat %s', seat.id)
+            return JsonResponse({'status': 'success', 'is_available': seat.is_available})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'error': str(e)})
+    return JsonResponse({'status': 'error', 'error': 'Invalid request'})
+
+
+def update_location(request):
+    # This view is used via AJAX to update driver's location.
+    if request.method == 'POST' and request.user.is_authenticated and hasattr(request.user, 'driver_profile'):
+        lat = request.POST.get('lat')
+        lng = request.POST.get('lng')
+        try:
+            lat_f = float(lat)
+            lng_f = float(lng)
+        except Exception:
+            return JsonResponse({'status': 'error', 'error': 'invalid coordinates'})
+
+        driver = request.user.driver_profile
+        driver.current_lat = lat_f
+        driver.current_lng = lng_f
+        driver.save(update_fields=['current_lat', 'current_lng'])
+
+        # Also persist on the driver's primary bus (if any) so homepage can use persisted nearest_stop_index
+        try:
+            bus = driver.buses.first()
+            if bus:
+                # preserve old values for comparison
+                old_nearest = bus.nearest_stop_index if bus.nearest_stop_index is not None else None
+                old_eta_smoothed = bus.eta_smoothed_seconds if getattr(bus, 'eta_smoothed_seconds', None) is not None else None
+
+                bus.current_lat = lat_f
+                bus.current_lng = lng_f
+
+                # compute nearest stop index and ETA seconds if route and stops are available
+                try:
+                    route = getattr(bus, 'route', None)
+                    if route:
+                        stops = route.get_stops_list()
+                        if stops:
+                            import math
+                            def haversine(lat1, lon1, lat2, lon2):
+                                R = 6371
+                                phi1 = math.radians(lat1)
+                                phi2 = math.radians(lat2)
+                                dphi = math.radians(lat2 - lat1)
+                                dlambda = math.radians(lon2 - lon1)
+                                a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+                                c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+                                return R * c
+
+                            # find nearest stop index
+                            nearest_idx = min(range(len(stops)), key=lambda i: haversine(lat_f, lng_f, stops[i].latitude, stops[i].longitude))
+                            bus.nearest_stop_index = int(nearest_idx)
+
+                            # compute ETA_seconds to that nearest stop (as a conservative estimate)
+                            dist_km = haversine(lat_f, lng_f, stops[nearest_idx].latitude, stops[nearest_idx].longitude)
+                            avg_speed_kmh = getattr(settings, 'AVG_SPEED_KMH', 25)
+                            eta_seconds = int((dist_km / avg_speed_kmh) * 3600)
+                            if eta_seconds < 1:
+                                eta_seconds = 1
+                            bus.eta_seconds = int(eta_seconds)
+
+                            # ETA smoothing (exponential moving average)
+                            alpha = getattr(settings, 'ETA_SMOOTH_ALPHA', 0.3)
+                            if old_eta_smoothed is None:
+                                bus.eta_smoothed_seconds = float(bus.eta_seconds)
+                            else:
+                                bus.eta_smoothed_seconds = float(alpha * float(bus.eta_seconds) + (1 - alpha) * float(old_eta_smoothed))
+
+                            # passed counter: if bus moved forward along route (index increased), increment; if moved backward, reset
+                            try:
+                                if old_nearest is not None:
+                                    if int(nearest_idx) > int(old_nearest):
+                                        bus.eta_passed_counter = (getattr(bus, 'eta_passed_counter', 0) or 0) + 1
+                                    elif int(nearest_idx) < int(old_nearest):
+                                        bus.eta_passed_counter = 0
+                            except Exception:
+                                # ignore counter failures
+                                pass
+                except Exception:
+                    # non-fatal; continue without nearest index / eta
+                    pass
+
+                # save only fields that exist on the model
+                save_fields = []
+                for f in ['current_lat', 'current_lng', 'nearest_stop_index', 'eta_seconds', 'eta_smoothed_seconds', 'eta_passed_counter']:
+                    if hasattr(bus, f):
+                        save_fields.append(f)
+                if save_fields:
+                    bus.save(update_fields=save_fields)
+        except Exception:
+            # ignore bus persistence failures
+            pass
+
+        return JsonResponse({'status': 'success'})
+    return JsonResponse({'status': 'failed'})
+
+
+def user_login(request):
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+        user = authenticate(username=username, password=password)
+        if user:
+            login(request, user)
+            return redirect('homepage')
+        messages.error(request, 'Invalid credentials.')
+        return redirect('user_login')
+    return render(request, 'registration/user_login.html')
+
+
+def user_register(request):
+    if request.method == 'POST':
+        # Check if this is OTP verification step
+        if 'verify_otp' in request.POST:
+            return verify_user_otp(request)
+        
+        # Step 1: Send OTP
+        username = request.POST.get('username', '').strip()
+        email = request.POST.get('email', '').strip()
+        password = request.POST.get('password', '').strip()
+        
+        # Validation
+        if not username or not email or not password:
+            messages.error(request, 'All fields are required.')
+            return redirect('user_register')
+        
+        # Check if username already exists
+        if User.objects.filter(username=username).exists():
+            messages.error(request, 'Username already taken.')
+            return redirect('user_register')
+        
+        # Check if email already exists
+        if User.objects.filter(email=email).exists():
+            messages.error(request, 'Email already registered.')
+            return redirect('user_register')
+        
+        # Generate and send OTP
+        otp_code = EmailOTP.generate_otp()
+        
+        # Delete old OTPs for this email
+        EmailOTP.objects.filter(email=email).delete()
+        
+        # Create new OTP
+        EmailOTP.objects.create(email=email, otp_code=otp_code)
+        
+        # Send email
+        if send_otp_email(email, otp_code):
+            # Store form data in session
+            request.session['user_registration_data'] = {
+                'username': username,
+                'email': email,
+                'password': password,
+            }
+            
+            messages.success(request, f'Verification code sent to {email}. Please check your inbox.')
+            return render(request, 'registration/user_verify_otp.html', {'email': email})
+        else:
+            messages.error(request, 'Failed to send verification email. Please try again.')
+            return redirect('user_register')
+    else:
+        return render(request, 'registration/user_register.html')
+
+
+def verify_user_otp(request):
+    """Verify OTP and complete user registration"""
+    entered_otp = request.POST.get('otp_code', '').strip()
+    registration_data = request.session.get('user_registration_data')
+    
+    if not registration_data:
+        messages.error(request, 'Session expired. Please register again.')
+        return redirect('user_register')
+    
+    email = registration_data['email']
+    
+    # Get OTP from database
+    try:
+        otp_record = EmailOTP.objects.filter(email=email, is_verified=False).latest('created_at')
+    except EmailOTP.DoesNotExist:
+        messages.error(request, 'Invalid or expired OTP. Please register again.')
+        return redirect('user_register')
+    
+    # Check if OTP is expired
+    if otp_record.is_expired():
+        messages.error(request, 'OTP has expired. Please register again.')
+        return redirect('user_register')
+    
+    # Verify OTP
+    if otp_record.otp_code != entered_otp:
+        messages.error(request, 'Invalid OTP. Please try again.')
+        return render(request, 'registration/user_verify_otp.html', {'email': email})
+    
+    # OTP is correct - Complete registration
+    try:
+        # Create user
+        user = User.objects.create_user(
+            username=registration_data['username'],
+            email=registration_data['email'],
+            password=registration_data['password']
+        )
+        
+        # Mark OTP as verified
+        otp_record.is_verified = True
+        otp_record.save()
+        
+        # Clear session data
+        del request.session['user_registration_data']
+        
+        messages.success(request, 'Email verified! Registration successful. You can now login.')
+        return redirect('user_login')
+        
+    except Exception as e:
+        messages.error(request, f'Registration failed: {str(e)}')
+        return redirect('user_register')
+    
+def user_forgot_password(request):
+    """User forgot password - send OTP"""
+    if request.method == 'POST':
+        email = request.POST.get('email', '').strip()
+        
+        if not email:
+            messages.error(request, 'Please enter your email address.')
+            return redirect('user_forgot_password')
+        
+        # Check if email exists
+        try:
+            user = User.objects.get(email=email)
+            # Check if user has driver profile (drivers should use driver forgot password)
+            if hasattr(user, 'driver_profile'):
+                messages.error(request, 'This email belongs to a driver account. Please use driver forgot password.')
+                return redirect('user_forgot_password')
+        except User.DoesNotExist:
+            messages.error(request, 'No account found with this email.')
+            return redirect('user_forgot_password')
+        
+        # Generate and send OTP
+        otp_code = EmailOTP.generate_otp()
+        
+        # Delete old OTPs for this email
+        EmailOTP.objects.filter(email=email).delete()
+        
+        # Create new OTP
+        EmailOTP.objects.create(email=email, otp_code=otp_code)
+        
+        # Send email
+        if send_otp_email(email, otp_code, purpose='password_reset'):
+            # Store email in session
+            request.session['user_reset_password_email'] = email
+            
+            messages.success(request, f'Password reset code sent to {email}')
+            return render(request, 'registration/user_reset_otp.html', {'email': email})
+        else:
+            messages.error(request, 'Failed to send email. Please try again.')
+            return redirect('user_forgot_password')
+    
+    return render(request, 'registration/user_forgot_password.html')
+
+
+def user_verify_reset_otp(request):
+    """Verify OTP for user password reset"""
+    if request.method == 'POST':
+        entered_otp = request.POST.get('otp_code', '').strip()
+        email = request.session.get('user_reset_password_email')
+        
+        if not email:
+            messages.error(request, 'Session expired. Please try again.')
+            return redirect('user_forgot_password')
+        
+        # Get OTP from database
+        try:
+            otp_record = EmailOTP.objects.filter(email=email, is_verified=False).latest('created_at')
+        except EmailOTP.DoesNotExist:
+            messages.error(request, 'Invalid or expired OTP.')
+            return redirect('user_forgot_password')
+        
+        # Check if OTP is expired
+        if otp_record.is_expired():
+            messages.error(request, 'OTP has expired. Please request a new one.')
+            return redirect('user_forgot_password')
+        
+        # Verify OTP
+        if otp_record.otp_code != entered_otp:
+            messages.error(request, 'Invalid OTP. Please try again.')
+            return render(request, 'registration/user_reset_otp.html', {'email': email})
+        
+        # OTP is correct - Mark as verified and show new password form
+        otp_record.is_verified = True
+        otp_record.save()
+        
+        return render(request, 'registration/user_new_password.html', {'email': email})
+    
+    return redirect('user_forgot_password')
+
+
+def user_set_new_password(request):
+    """Set new password for user after OTP verification"""
+    if request.method == 'POST':
+        email = request.session.get('user_reset_password_email')
+        new_password = request.POST.get('new_password', '').strip()
+        confirm_password = request.POST.get('confirm_password', '').strip()
+        
+        if not email:
+            messages.error(request, 'Session expired. Please try again.')
+            return redirect('user_forgot_password')
+        
+        # Validation
+        if not new_password or not confirm_password:
+            messages.error(request, 'Both password fields are required.')
+            return render(request, 'registration/user_new_password.html', {'email': email})
+        
+        if new_password != confirm_password:
+            messages.error(request, 'Passwords do not match.')
+            return render(request, 'registration/user_new_password.html', {'email': email})
+        
+        if len(new_password) < 6:
+            messages.error(request, 'Password must be at least 6 characters long.')
+            return render(request, 'registration/user_new_password.html', {'email': email})
+        
+        # Verify that OTP was verified for this email
+        verified_otp = EmailOTP.objects.filter(email=email, is_verified=True).exists()
+        if not verified_otp:
+            messages.error(request, 'Invalid request. Please verify OTP first.')
+            return redirect('user_forgot_password')
+        
+        # Update password
+        try:
+            user = User.objects.get(email=email)
+            user.set_password(new_password)
+            user.save()
+            
+            # Clear session
+            del request.session['user_reset_password_email']
+            
+            messages.success(request, 'Password changed successfully! You can now login with your new password.')
+            return redirect('user_login')
+            
+        except User.DoesNotExist:
+            messages.error(request, 'User not found.')
+            return redirect('user_forgot_password')
+    
+    return redirect('user_forgot_password')   
+def track_bus(request, bus_id):
+    # Display live tracking and seat info for the selected bus.
+    from .models import Bus
+    bus = Bus.objects.filter(id=bus_id).first()
+    seats = list(bus.seats.order_by('seat_number').all()) if bus else []
+    last_row_start = bus.total_seats - 5 if bus and bus.total_seats >= 5 else 0
+    seat_grid_columns = []
+    seats_per_row = 4
+    # Use left door gap and 6 columns: map normal row seats to columns [2,3,5,6]
+    col_map = [2, 3, 5, 6]
+    for idx, seat in enumerate(seats):
+        if idx < last_row_start:
+            row = (idx // seats_per_row) + 1
+            pos = idx % seats_per_row
+            col = col_map[pos]
+        else:
+            # final back row uses columns 2..6 (includes middle single seat)
+            row = (last_row_start // seats_per_row) + 1 if last_row_start > 0 else (idx // seats_per_row) + 1
+            col = (idx - last_row_start) + 2
+            if col < 2: col = 2
+            if col > 6: col = 6
+        seat_grid_columns.append((seat, row, col))
+    # Determine if the current user has bookmarked this bus
+    is_bookmarked = False
+    if request.user.is_authenticated:
+        is_bookmarked = Bookmark.objects.filter(user=request.user, bus=bus).exists()
+
+    # Chat room naming: user_<uid>_driver_<did>
+    chat_room = None
+    if request.user.is_authenticated and bus and bus.driver and bus.driver.user:
+        chat_room = f'user_{request.user.id}_driver_{bus.driver.user.id}'
+
+    # allow prefilling pickup stop via query param (e.g., ?pickup=Kathmandu)
+    default_pickup = request.GET.get('pickup', '')
+
+    # compute ETA for default pickup if possible
+    eta = None
+    pickup_coords = None
+    if default_pickup and bus:
+        try:
+            stop_obj = Stop.objects.filter(name__iexact=default_pickup.strip()).first()
+            if stop_obj:
+                pickup_coords = (stop_obj.latitude, stop_obj.longitude)
+            else:
+                # try to interpret default_pickup as free text coordinate pair "lat,lng"
+                if ',' in default_pickup:
+                    parts = default_pickup.split(',')
+                    lat = float(parts[0].strip())
+                    lng = float(parts[1].strip())
+                    pickup_coords = (lat, lng)
+        except Exception:
+            pickup_coords = None
+
+    if pickup_coords and bus and getattr(bus, 'current_lat', None) is not None and getattr(bus, 'current_lng', None) is not None:
+        try:
+            import math
+            def haversine(lat1, lon1, lat2, lon2):
+                R = 6371  # km
+                phi1 = math.radians(lat1)
+                phi2 = math.radians(lat2)
+                dphi = math.radians(lat2 - lat1)
+                dlambda = math.radians(lon2 - lon1)
+                a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+                c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+                return R * c
+
+            # Prefer route-aware ETA if route/stops are available
+            route = getattr(bus, 'route', None)
+            distance_km = None
+            if route:
+                try:
+                    stops = route.get_stops_list()
+                    # find pickup stop object in this route by coordinates match
+                    pickup_stop_obj = None
+                    for s in stops:
+                        if abs(s.latitude - float(pickup_coords[0])) < 1e-6 and abs(s.longitude - float(pickup_coords[1])) < 1e-6:
+                            pickup_stop_obj = s
+                            break
+                    if pickup_stop_obj:
+                        # compute distance along route from bus to pickup
+                        # find nearest stop index to bus
+                        def stop_dist(idx):
+                            s = stops[idx]
+                            return haversine(bus.current_lat, bus.current_lng, s.latitude, s.longitude)
+                        nearest_idx = min(range(len(stops)), key=lambda i: stop_dist(i)) if stops else 0
+                        # distance from bus to its nearest stop
+                        dist = stop_dist(nearest_idx)
+                        # then sum along stops from nearest_idx to pickup index (wrapping)
+                        pickup_idx = next((i for i,s in enumerate(stops) if s.id == pickup_stop_obj.id), None)
+                        if pickup_idx is None:
+                            distance_km = None
+                        else:
+                            i = nearest_idx
+                            while i != pickup_idx:
+                                a = stops[i]
+                                b = stops[(i+1) % len(stops)]
+                                dist += haversine(a.latitude, a.longitude, b.latitude, b.longitude)
+                                i = (i+1) % len(stops)
+                            distance_km = dist
+                except Exception:
+                    distance_km = None
+
+            # fallback to straight-line if route-aware not available
+            if distance_km is None:
+                distance_km = haversine(bus.current_lat, bus.current_lng, pickup_coords[0], pickup_coords[1])
+
+            avg_speed_kmh = 25
+            eta_mins = int((distance_km / avg_speed_kmh) * 60)
+            eta = eta_mins if eta_mins >= 1 else 1
+        except Exception:
+            eta = None
+
+    return render(request, 'user/tracking.html', {
+        'bus_id': bus_id,
+        'bus': bus,
+        'seats': seats,
+        'last_row_start': last_row_start,
+        'seat_grid_columns': seat_grid_columns,
+        'is_bookmarked': is_bookmarked,
+        'chat_room': chat_room,
+        'default_pickup': default_pickup,
+        'eta': eta,
+        'pickup_coords': pickup_coords,
+    })
+
+
+@login_required
+@require_POST
+def bookmark_bus(request):
+    try:
+        bus_id = int(request.POST.get('bus_id'))
+        bus = Bus.objects.get(id=bus_id)
+        Bookmark.objects.get_or_create(user=request.user, bus=bus)
+        return JsonResponse({'status': 'success'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'error': str(e)})
+
+
+@login_required
+@require_POST
+def remove_bookmark(request):
+    try:
+        bus_id = int(request.POST.get('bus_id'))
+        Bookmark.objects.filter(user=request.user, bus_id=bus_id).delete()
+        return JsonResponse({'status': 'success'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'error': str(e)})
+
+
+@login_required
+@require_POST
+def send_pickup_request(request):
+    try:
+        bus_id = int(request.POST.get('bus_id'))
+        stop = request.POST.get('stop')
+        message = request.POST.get('message', '')
+        bus = Bus.objects.get(id=bus_id)
+        pickup = PickupRequest.objects.create(user=request.user, bus=bus, stop=stop, message=message)
+        # Log the notification payload for auditing
+        try:
+            logger.info('PickupRequest created: id=%s user_id=%s bus_id=%s stop=%s', pickup.id, request.user.id, bus.id, extra={'stop': stop})
+        except Exception:
+            logger.exception('Failed to log pickup creation')
+        # Notify driver via channels group
+        try:
+            channel_layer = get_channel_layer()
+            if bus.driver and bus.driver.user:
+                driver_group = f'driver_{bus.driver.user.id}'
+                payload = {
+                    'type': 'pickup_notification',
+                    'pickup_id': pickup.id,
+                    'user_id': request.user.id,
+                    'user_username': getattr(request.user, 'username', None),
+                    'bus_id': bus.id,
+                    'stop': pickup.stop,
+                    'message': pickup.message,
+                }
+                logger.info('Sending pickup_notification to %s payload=%s', driver_group, payload)
+                async_to_sync(channel_layer.group_send)(driver_group, payload)
+        except Exception:
+            pass
+        return JsonResponse({'status': 'success', 'pickup_id': pickup.id})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'error': str(e)})
+
+
+@csrf_exempt
+def compute_eta(request):
+    """Compute ETA in minutes from the bus's current location to a pickup location.
+
+    Accepts POST form body with 'bus_id' and 'pickup' (stop name or 'lat,lng').
+    Returns JSON {status: 'success', eta: <minutes>} or error.
+    """
+    try:
+        if request.method != 'POST':
+            return JsonResponse({'status': 'error', 'error': 'POST required'})
+        bus_id = int(request.POST.get('bus_id') or request.GET.get('bus_id') or 0)
+        pickup = (request.POST.get('pickup') or request.GET.get('pickup') or '').strip()
+        if not bus_id or not pickup:
+            return JsonResponse({'status': 'error', 'error': 'bus_id and pickup required'})
+
+        bus = Bus.objects.filter(id=bus_id).first()
+        if not bus:
+            return JsonResponse({'status': 'error', 'error': 'bus not found'})
+
+        bus_lat = getattr(bus, 'current_lat', None)
+        bus_lng = getattr(bus, 'current_lng', None)
+        if bus_lat is None or bus_lng is None:
+            return JsonResponse({'status': 'error', 'error': 'bus has no live location'})
+
+        # Resolve pickup to coordinates
+        pickup_coords = None
+        try:
+            stop_obj = Stop.objects.filter(name__iexact=pickup).first()
+            if stop_obj:
+                pickup_coords = (stop_obj.latitude, stop_obj.longitude)
+            else:
+                # try parse lat,lng
+                if ',' in pickup:
+                    parts = pickup.split(',')
+                    pickup_coords = (float(parts[0].strip()), float(parts[1].strip()))
+        except Exception:
+            pickup_coords = None
+
+        if not pickup_coords:
+            return JsonResponse({'status': 'error', 'error': 'could not resolve pickup to coordinates'})
+
+        import math
+        def haversine(lat1, lon1, lat2, lon2):
+            R = 6371
+            phi1 = math.radians(lat1)
+            phi2 = math.radians(lat2)
+            dphi = math.radians(lat2 - lat1)
+            dlambda = math.radians(lon2 - lon1)
+            a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+            return R * c
+
+        # Prefer route-aware ETA: if the pickup matches a stop on the bus' route, compute along the stops
+        distance_km = None
+        try:
+            route = getattr(bus, 'route', None)
+            if route:
+                stops = route.get_stops_list()
+                # find pickup stop object among route stops
+                pickup_stop_obj = None
+                for s in stops:
+                    if abs(s.latitude - float(pickup_coords[0])) < 1e-6 and abs(s.longitude - float(pickup_coords[1])) < 1e-6:
+                        pickup_stop_obj = s
+                        break
+                if pickup_stop_obj and stops:
+                    # helper haversine
+                    def stop_distance(a, b):
+                        return haversine(a.latitude, a.longitude, b.latitude, b.longitude)
+                    # find nearest stop index to bus
+                    nearest_idx = min(range(len(stops)), key=lambda i: haversine(bus_lat, bus_lng, stops[i].latitude, stops[i].longitude))
+                    # distance from bus to the nearest stop
+                    dist = haversine(bus_lat, bus_lng, stops[nearest_idx].latitude, stops[nearest_idx].longitude)
+                    pickup_idx = next((i for i,s in enumerate(stops) if s.id == pickup_stop_obj.id), None)
+                    if pickup_idx is not None:
+                        i = nearest_idx
+                        while i != pickup_idx:
+                            a = stops[i]
+                            b = stops[(i+1) % len(stops)]
+                            dist += stop_distance(a, b)
+                            i = (i+1) % len(stops)
+                        distance_km = dist
+        except Exception:
+            distance_km = None
+
+        if distance_km is None:
+            distance_km = haversine(bus_lat, bus_lng, pickup_coords[0], pickup_coords[1])
+
+        avg_speed_kmh = 25
+        eta_mins = int((distance_km / avg_speed_kmh) * 60)
+        eta_mins = eta_mins if eta_mins >= 1 else 1
+        return JsonResponse({'status': 'success', 'eta': eta_mins})
+    except Exception as e:
+        logger.exception('compute_eta failed')
+        return JsonResponse({'status': 'error', 'error': str(e)})
+
+
+@login_required
+def debug_bus_status(request, bus_id):
+    """Return persisted debug info for a bus (staff or DEBUG only)."""
+    try:
+        # allow if DEBUG or staff
+        if not (settings.DEBUG or (request.user.is_authenticated and request.user.is_staff)):
+            return JsonResponse({'status': 'error', 'error': 'unauthorized'}, status=403)
+        bus = Bus.objects.filter(id=bus_id).first()
+        if not bus:
+            return JsonResponse({'status': 'error', 'error': 'not found'}, status=404)
+        payload = {
+            'id': bus.id,
+            'number_plate': getattr(bus, 'number_plate', None),
+            'current_lat': getattr(bus, 'current_lat', None),
+            'current_lng': getattr(bus, 'current_lng', None),
+            'nearest_stop_index': getattr(bus, 'nearest_stop_index', None),
+            'eta_seconds': getattr(bus, 'eta_seconds', None),
+            'eta_smoothed_seconds': getattr(bus, 'eta_smoothed_seconds', None),
+            'eta_passed_counter': getattr(bus, 'eta_passed_counter', None),
+            'route_id': bus.route.id if getattr(bus, 'route', None) else None,
+            'route_name': bus.route.name if getattr(bus, 'route', None) else None,
+        }
+        return JsonResponse({'status': 'success', 'bus': payload})
+    except Exception as e:
+        logger.exception('debug_bus_status failed')
+        return JsonResponse({'status': 'error', 'error': str(e)})
+
+
+@login_required
+def driver_notifications(request):
+    # For drivers to see pickup requests targeting their buses
+    if not hasattr(request.user, 'driver_profile'):
+        return JsonResponse({'status': 'error', 'error': 'Not a driver'})
+    driver = request.user.driver_profile
+    pickups = PickupRequest.objects.filter(bus__driver=driver).order_by('-created_at')[:50]
+    unread_count = PickupRequest.objects.filter(bus__driver=driver, seen_by_driver=False).count()
+    data = [
+        {
+            'id': p.id,
+            'user_id': p.user.id,
+            'user': p.user.username,
+            'stop': p.stop,
+            'message': p.message,
+            'status': p.status,
+            'created_at': p.created_at.isoformat(),
+            'seen': p.seen_by_driver,
+        }
+        for p in pickups
+    ]
+    return JsonResponse({'status': 'success', 'pickups': data, 'unread_count': unread_count, 'recent': data[:10]})
+
+
+def user_profile(request, user_id):
+    try:
+        profile_user = User.objects.get(id=user_id)
+        # pickup history for this user
+        pickups = PickupRequest.objects.filter(user=profile_user).order_by('-created_at')[:200]
+        # bookmarks for this user
+        bookmarks = Bookmark.objects.filter(user=profile_user).select_related('bus').order_by('-created_at')[:200]
+
+        # derive a simple "tracked_buses" list from pickups and bookmarks (unique, recent first)
+        tracked = []
+        seen = set()
+        for p in pickups:
+            if p.bus and p.bus.id not in seen:
+                tracked.append(p.bus)
+                seen.add(p.bus.id)
+        for b in bookmarks:
+            if b.bus and b.bus.id not in seen:
+                tracked.append(b.bus)
+                seen.add(b.bus.id)
+
+        context = {
+            'profile_user': profile_user,
+            'pickups': pickups,
+            'bookmarks': bookmarks,
+            'tracked_buses': tracked,
+        }
+        return render(request, 'user/profile.html', context)
+    except User.DoesNotExist:
+        return render(request, 'user/profile.html', {'profile_user': None})
+
+
+def logout_view(request):
+    """Simple logout view that accepts GET and redirects to homepage."""
+    try:
+        logout(request)
+    except Exception:
+        pass
+    return redirect('homepage')
+
+
+@login_required
+@require_POST
+def mark_pickup_seen(request):
+    try:
+        pickup_id = int(request.POST.get('pickup_id'))
+        p = PickupRequest.objects.filter(id=pickup_id).first()
+        if not p:
+            return JsonResponse({'status': 'error', 'error': 'not found'})
+        # ensure driver owns the bus
+        if not hasattr(request.user, 'driver_profile') or p.bus.driver != request.user.driver_profile:
+            return JsonResponse({'status': 'error', 'error': 'unauthorized'})
+        p.seen_by_driver = True
+        p.save(update_fields=['seen_by_driver'])
+        return JsonResponse({'status': 'ok'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'error': str(e)})
+
+
+@login_required
+@require_POST
+def clear_all_pickups(request):
+    try:
+        if not hasattr(request.user, 'driver_profile'):
+            return JsonResponse({'status': 'error', 'error': 'Not a driver'})
+        driver = request.user.driver_profile
+        # mark all pickups for this driver's buses as seen
+        qs = PickupRequest.objects.filter(bus__driver=driver, seen_by_driver=False)
+        count = qs.update(seen_by_driver=True)
+        return JsonResponse({'status': 'ok', 'cleared': count})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'error': str(e)})
+
+
+@login_required
+def fetch_messages(request, other_user_id):
+    # Fetch recent messages between request.user and other_user_id
+    try:
+        other = User.objects.get(id=other_user_id)
+        msgs = Message.objects.filter(
+            (models.Q(sender=request.user) & models.Q(recipient=other)) |
+            (models.Q(sender=other) & models.Q(recipient=request.user))
+        ).order_by('created_at')[:200]
+        data = [
+            {'id': m.id, 'sender': m.sender.username, 'recipient': m.recipient.username, 'content': m.content, 'created_at': m.created_at.isoformat(), 'read': m.read}
+            for m in msgs
+        ]
+        return JsonResponse({'status': 'success', 'messages': data})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'error': str(e)})

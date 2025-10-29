@@ -1,0 +1,518 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}User Profile - Smart Transport{% endblock %}
+
+{% block extra_head %}
+<style>
+    .profile-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 30px 20px;
+    }
+
+    .profile-header {
+        background: linear-gradient(135deg, #2563EB 0%, #1E40AF 100%);
+        color: white;
+        padding: 40px 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        margin-bottom: 30px;
+    }
+
+    .profile-info {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 20px;
+    }
+
+    .user-details h2 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 0 0 8px 0;
+        color: white;
+    }
+
+    .user-email {
+        font-size: 1rem;
+        opacity: 0.9;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .manage-link {
+        background: white;
+        color: var(--primary);
+        padding: 10px 20px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+
+    .manage-link:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(255, 255, 255, 0.3);
+    }
+
+    .profile-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 30px;
+        margin-top: 30px;
+    }
+
+    .section-card {
+        background: white;
+        padding: 25px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .section-title {
+        font-size: 1.3rem;
+        font-weight: 700;
+        color: var(--secondary);
+        margin-bottom: 20px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #e5e7eb;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .bus-list, .pickup-list, .bookmark-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .bus-item, .pickup-item, .bookmark-item {
+        padding: 15px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        margin-bottom: 12px;
+        transition: all 0.3s ease;
+        background: #f9fafb;
+    }
+
+    .bus-item:hover, .pickup-item:hover, .bookmark-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        border-color: var(--primary);
+    }
+
+    .bus-item-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .bus-number {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--dark);
+    }
+
+    .bus-route {
+        font-size: 0.9rem;
+        color: #6b7280;
+        margin-top: 4px;
+    }
+
+    .track-btn {
+        background: var(--primary);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 6px;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 0.9rem;
+        transition: all 0.3s ease;
+    }
+
+    .track-btn:hover {
+        background: var(--secondary);
+        transform: translateY(-2px);
+    }
+
+    .pickup-item-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        gap: 15px;
+    }
+
+    .pickup-details {
+        flex: 1;
+    }
+
+    .pickup-to {
+        font-size: 0.95rem;
+        color: var(--dark);
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+
+    .pickup-time {
+        font-size: 0.8rem;
+        color: #6b7280;
+        margin-bottom: 8px;
+    }
+
+    .pickup-message {
+        font-size: 0.9rem;
+        color: #374151;
+        margin-top: 8px;
+        padding: 8px;
+        background: white;
+        border-radius: 4px;
+    }
+
+    .status-badge {
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .status-seen {
+        background: #d1fae5;
+        color: #065f46;
+    }
+
+    .status-unseen {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .bookmark-item-content {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .bookmark-info {
+        flex: 1;
+    }
+
+    .bookmark-bus {
+        font-size: 1rem;
+        font-weight: 700;
+        color: var(--dark);
+    }
+
+    .bookmark-date {
+        font-size: 0.85rem;
+        color: #6b7280;
+        margin-top: 4px;
+    }
+
+    .remove-bookmark {
+        background: #ef4444;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .remove-bookmark:hover {
+        background: #dc2626;
+        transform: translateY(-2px);
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 40px 20px;
+        color: #6b7280;
+    }
+
+    .empty-state-icon {
+        font-size: 3rem;
+        margin-bottom: 15px;
+        opacity: 0.3;
+    }
+
+    .empty-state-text {
+        font-size: 0.95rem;
+    }
+
+    .not-found {
+        text-align: center;
+        padding: 60px 20px;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .not-found-icon {
+        font-size: 4rem;
+        margin-bottom: 20px;
+        color: #9ca3af;
+    }
+
+    .not-found-text {
+        font-size: 1.2rem;
+        color: #6b7280;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 992px) {
+        .profile-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .profile-container {
+            padding: 20px 10px;
+        }
+
+        .profile-header {
+            padding: 30px 20px;
+        }
+
+        .user-details h2 {
+            font-size: 1.5rem;
+        }
+
+        .profile-info {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .section-card {
+            padding: 20px 15px;
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+        }
+
+        .bus-item-content,
+        .bookmark-item-content {
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .track-btn,
+        .remove-bookmark {
+            width: 100%;
+            text-align: center;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{% if profile_user %}
+      <!-- Profile Header -->
+        <div class="profile-header">
+            <div class="profile-info">
+                <div class="user-details">
+                    <h2>👤 {{ profile_user.username }}</h2>
+                    <div class="user-email">
+                        📧 {{ profile_user.email }}
+                    </div>
+                </div>
+                <div>
+                    {% if request.user.id == profile_user.id %}
+                       <a href="{% url 'homepage'  %}" class="manage-link">
+                            🏠 Manage Account
+                        </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Profile Grid -->
+        <div class="profile-grid">
+            <!-- Left Column: Tracked Buses & Pickup History -->
+            <div>
+                <!-- Tracked Buses Section -->
+                <div class="section-card">
+                    <h3 class="section-title">
+                        🚌 Tracked / Recent Buses
+                    </h3>
+                    {% if tracked_buses %}
+                        <ul class="bus-list">
+                            {% for bus in tracked_buses %}
+                                <li class="bus-item">
+                                    <div class="bus-item-content">
+                                        <div>
+                                            <div class="bus-number">{{ bus.number_plate }}</div>
+                                            <div class="bus-route">
+                                                Route: {% if bus.route %}{{ bus.route.name }}{% else %}—{% endif %}
+                                            </div>
+                                        </div>
+                                        <a href="{% url 'track_bus' bus.id %}" class="track-btn">
+                                            Track Now
+                                        </a>
+                                    </div>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <div class="empty-state">
+                            <div class="empty-state-icon">🚌</div>
+                            <p class="empty-state-text">No recent tracked buses.</p>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <!-- Pickup History Section -->
+                <div class="section-card" style="margin-top: 30px;">
+                    <h3 class="section-title">
+                        📍 Pickup History
+                    </h3>
+                    {% if pickups %}
+                        <ul class="pickup-list">
+                            {% for p in pickups %}
+                                <li class="pickup-item">
+                                    <div class="pickup-item-content">
+                                        <div class="pickup-details">
+                                            <div class="pickup-to">
+                                                To: {% if p.bus %}{{ p.bus.number_plate }}{% else %}—{% endif %} 
+                                                → Stop: {{ p.stop }}
+                                            </div>
+                                            <div class="pickup-time">
+                                                🕒 {{ p.created_at|date:"M d, Y - h:i A" }}
+                                            </div>
+                                            {% if p.message %}
+                                                <div class="pickup-message">
+                                                    💬 {{ p.message }}
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                        <div>
+                                            <span class="status-badge {% if p.seen_by_driver %}status-seen{% else %}status-unseen{% endif %}">
+                                                {% if p.seen_by_driver %}✓ Seen{% else %}⏳ Pending{% endif %}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📍</div>
+                            <p class="empty-state-text">No pickup history.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Right Column: Bookmarks -->
+            <div>
+                <div class="section-card">
+                    <h3 class="section-title">
+                        ⭐ Bookmarks
+                    </h3>
+                    {% if bookmarks %}
+                        <ul class="bookmark-list">
+                            {% for b in bookmarks %}
+                                <li class="bookmark-item">
+                                    <div class="bookmark-item-content">
+                                        <div class="bookmark-info">
+                                            <div class="bookmark-bus">
+                                                {% if b.bus %}{{ b.bus.number_plate }}{% else %}—{% endif %}
+                                            </div>
+                                            <div class="bookmark-date">
+                                                Added: {{ b.created_at|date:"M d, Y" }}
+                                            </div>
+                                        </div>
+                                        <button data-bus-id="{{ b.bus.id }}" class="remove-bookmark">
+                                            Remove
+                                        </button>
+                                    </div>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <div class="empty-state">
+                            <div class="empty-state-icon">⭐</div>
+                            <p class="empty-state-text">No bookmarks yet.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% else %}
+    <div class="profile-container">
+        <div class="not-found">
+            <div class="not-found-icon">❌</div>
+            <p class="not-found-text">User not found.</p>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Remove bookmark functionality
+    document.addEventListener('click', function(e) {
+        if (e.target && e.target.classList.contains('remove-bookmark')) {
+            const busId = e.target.getAttribute('data-bus-id');
+            const listItem = e.target.closest('li');
+            
+            if (!confirm('Are you sure you want to remove this bookmark?')) {
+                return;
+            }
+            
+            // Disable button during request
+            e.target.disabled = true;
+            e.target.textContent = 'Removing...';
+            
+            fetch('{% url "remove_bookmark" %}', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'X-CSRFToken': '{{ csrf_token }}' 
+                },
+                body: JSON.stringify({ bus_id: busId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Fade out and remove
+                    listItem.style.opacity = '0';
+                    listItem.style.transform = 'translateX(20px)';
+                    setTimeout(() => {
+                        listItem.remove();
+                        
+                        // Check if list is now empty
+                        const bookmarkList = document.querySelector('.bookmark-list');
+                        if (bookmarkList && bookmarkList.children.length === 0) {
+                            bookmarkList.innerHTML = `
+                                <div class="empty-state">
+                                    <div class="empty-state-icon">⭐</div>
+                                    <p class="empty-state-text">No bookmarks yet.</p>
+                                </div>
+                            `;
+                        }
+                    }, 300);
+                } else {
+                    alert('Failed to remove bookmark. Please try again.');
+                    e.target.disabled = false;
+                    e.target.textContent = 'Remove';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Network error. Please try again.');
+                e.target.disabled = false;
+                e.target.textContent = 'Remove';
+            });
+        }
+    });
+</script>
+{% endblock %}

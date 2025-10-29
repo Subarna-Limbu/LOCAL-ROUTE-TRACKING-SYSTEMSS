@@ -1,0 +1,427 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Driver Registration - Smart Transport{% endblock %}
+
+{% block extra_head %}
+<style>
+    .register-page {
+        min-height: calc(100vh - 200px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 3rem 1rem;
+        background-color: #F3F4F6;
+    }
+
+    .register-card {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        max-width: 600px;
+        width: 100%;
+        overflow: hidden;
+        animation: slideUp 0.4s ease-out;
+    }
+
+    @keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(30px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .register-header {
+        background: linear-gradient(135deg, #1E40AF 0%, #1E3A8A 100%);
+        color: white;
+        text-align: center;
+        padding: 2.5rem 2rem;
+    }
+
+    .register-header h1 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 0 0 0.5rem 0;
+        color: white;
+    }
+
+    .register-header p {
+        font-size: 0.95rem;
+        margin: 0;
+        color: rgba(255, 255, 255, 0.9);
+    }
+
+    .info-banner {
+        background-color: #DBEAFE;
+        border-left: 4px solid #2563EB;
+        padding: 1rem;
+        margin: 1.5rem 0;
+        border-radius: 0 8px 8px 0;
+    }
+
+    .info-banner p {
+        margin: 0;
+        font-size: 0.875rem;
+        color: #1E40AF;
+        line-height: 1.5;
+    }
+
+    .info-banner strong {
+        font-weight: 600;
+    }
+
+    .register-form {
+        padding: 2.5rem;
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+
+    /* Custom scrollbar */
+    .register-form::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .register-form::-webkit-scrollbar-track {
+        background: #F3F4F6;
+        border-radius: 4px;
+    }
+
+    .register-form::-webkit-scrollbar-thumb {
+        background: #CBD5E1;
+        border-radius: 4px;
+    }
+
+    .register-form::-webkit-scrollbar-thumb:hover {
+        background: #94A3B8;
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+    }
+
+    .form-group {
+        margin-bottom: 1.25rem;
+    }
+
+    .form-group-full {
+        grid-column: 1 / -1;
+    }
+
+    .form-label {
+        display: block;
+        font-weight: 600;
+        color: #1F2937;
+        margin-bottom: 0.5rem;
+        font-size: 0.95rem;
+    }
+
+    .form-input,
+    .form-select {
+        width: 100%;
+        padding: 0.875rem 1rem;
+        border: 2px solid #E5E7EB;
+        border-radius: 8px;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+        background-color: #F9FAFB;
+        font-family: inherit;
+        box-sizing: border-box;
+    }
+
+    .form-input:focus,
+    .form-select:focus {
+        outline: none;
+        border-color: #2563EB;
+        background-color: white;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .form-input::placeholder {
+        color: #9CA3AF;
+    }
+
+    .form-help {
+        font-size: 0.8rem;
+        color: #6B7280;
+        margin-top: 0.35rem;
+        display: block;
+    }
+
+    .file-input-wrapper {
+        position: relative;
+    }
+
+    .file-input {
+        width: 100%;
+        padding: 0.875rem 1rem;
+        border: 2px dashed #E5E7EB;
+        border-radius: 8px;
+        background-color: #F9FAFB;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-size: 0.95rem;
+        color: #6B7280;
+    }
+
+    .file-input:hover {
+        border-color: #2563EB;
+        background-color: #EFF6FF;
+    }
+
+    .file-input::file-selector-button {
+        background: #2563EB;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        margin-right: 1rem;
+        transition: background 0.2s;
+    }
+
+    .file-input::file-selector-button:hover {
+        background: #1E40AF;
+    }
+
+    .submit-btn {
+        width: 100%;
+        padding: 1rem;
+        background: linear-gradient(135deg, #2563EB 0%, #1E40AF 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        font-family: inherit;
+        margin-top: 1.5rem;
+    }
+
+    .submit-btn:hover {
+        background: linear-gradient(135deg, #1E40AF 0%, #1E3A8A 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(37, 99, 235, 0.4);
+    }
+
+    .submit-btn:active {
+        transform: translateY(0);
+    }
+
+    .login-prompt {
+        text-align: center;
+        margin-top: 1.5rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid #E5E7EB;
+    }
+
+    .login-prompt p {
+        color: #6B7280;
+        font-size: 0.9rem;
+        margin: 0;
+    }
+
+    .login-prompt a {
+        color: #2563EB;
+        text-decoration: none;
+        font-weight: 600;
+        transition: color 0.2s;
+    }
+
+    .login-prompt a:hover {
+        color: #1E40AF;
+        text-decoration: underline;
+    }
+
+    .alert-message {
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        display: flex;
+        align-items: start;
+        gap: 0.75rem;
+        animation: slideDown 0.3s ease-out;
+        font-size: 0.95rem;
+    }
+
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .alert-success {
+        background-color: #D1FAE5;
+        border-left: 4px solid #10B981;
+        color: #065F46;
+    }
+
+    .alert-error {
+        background-color: #FEE2E2;
+        border-left: 4px solid #EF4444;
+        color: #991B1B;
+    }
+
+    .alert-icon {
+        flex-shrink: 0;
+        font-size: 1.25rem;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .form-row {
+            grid-template-columns: 1fr;
+        }
+
+        .register-page {
+            padding: 2rem 1rem;
+        }
+
+        .register-header {
+            padding: 2rem 1.5rem;
+        }
+
+        .register-header h1 {
+            font-size: 1.75rem;
+        }
+
+        .register-form {
+            padding: 2rem 1.5rem;
+            max-height: none;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="register-page">
+    <div class="register-card">
+        <div class="register-header">
+            <h1>Driver Registration</h1>
+            <p>Join our network of professional drivers</p>
+        </div>
+
+        <form method="post" enctype="multipart/form-data" class="register-form">
+            {% csrf_token %}
+            
+            <div class="info-banner">
+                <p>
+                    📧 <strong>Email Verification Required</strong><br>
+                    We'll send a verification code to your email address to confirm your registration.
+                </p>
+            </div>
+            
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert-message {% if message.tags == 'error' %}alert-error{% else %}alert-success{% endif %}">
+                        <span class="alert-icon">
+                            {% if message.tags == 'error' %}
+                                ⚠️
+                            {% else %}
+                                ✓
+                            {% endif %}
+                        </span>
+                        <span>{{ message }}</span>
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+            <!-- Row 1: Username and Email -->
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label" for="username">Username *</label>
+                    <input type="text" id="username" name="username" class="form-input" 
+                           placeholder="Enter username" required autofocus>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="email">Email Address * 📧</label>
+                    <input type="email" id="email" name="email" class="form-input" 
+                           placeholder="your.email@gmail.com" required>
+                </div>
+            </div>
+
+            <!-- Row 2: Password and Phone -->
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label" for="password">Password *</label>
+                    <input type="password" id="password" name="password" class="form-input" 
+                           placeholder="Enter password" required minlength="6">
+                    <span class="form-help">At least 6 characters</span>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="phone">Phone Number *</label>
+                    <input type="text" id="phone" name="phone" class="form-input" 
+                           placeholder="e.g., 9841234567" required>
+                </div>
+            </div>
+
+            <!-- Row 3: Vehicle Number and Route -->
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label" for="vehicle_number">Vehicle Number *</label>
+                    <input type="text" id="vehicle_number" name="vehicle_number" class="form-input" 
+                           placeholder="e.g., BA 1 PA 8271" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="route">Route *</label>
+                    <select id="route" name="route" class="form-select" required>
+                        <option value="">Select Route</option>
+                        {% for route in routes %}
+                            <option value="{{ route.id }}">{{ route.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- Row 4: Total Seats (Full Width) -->
+            <div class="form-group form-group-full">
+                <label class="form-label" for="total_seats">Total Seats *</label>
+                <select id="total_seats" name="total_seats" class="form-select" required>
+                    <option value="">Select Seat Capacity</option>
+                    <option value="25">25 Seats (Mini Bus)</option>
+                    <option value="37">37 Seats (Large Bus)</option>
+                </select>
+                <span class="form-help">Choose your bus capacity</span>
+            </div>
+
+            <!-- Row 5: Vehicle Documents (Full Width) -->
+            <div class="form-group form-group-full">
+                <label class="form-label" for="vehicle_documents">Vehicle Documents (Optional)</label>
+                <input type="file" id="vehicle_documents" name="vehicle_documents" 
+                       class="file-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+                <span class="form-help">Upload license, registration, insurance, etc. (PDF or images)</span>
+            </div>
+
+            <button type="submit" class="submit-btn">
+                📧 Send Verification Code
+            </button>
+
+            <div class="login-prompt">
+                <p>Already have an account? 
+                    <a href="{% url 'driver_login' %}">Login here</a>
+                </p>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

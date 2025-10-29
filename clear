@@ -1,0 +1,16 @@
+[33m804bd830[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Fix static files and Render deploy setup
+[33m1d3cf727[m Add CSRF_TRUSTED_ORIGINS for Render
+[33ma2210596[m Fix settings for Render deployment
+[33m2411790b[m Add Render config to run Daphne
+[33m8f9d873e[m Added create-superuser view
+[33md259a50a[m Ignore virtual environment and compiled Python files
+[33m6c9c74d0[m Cleaned requirements to fix dependency conflicts
+[33m44e5248e[m Add gunicorn to requirements
+[33ma82ea6f0[m Prepare project for Render deployment using SQLite
+[33m7ad8f4ab[m first commit
+[33m1779c1f8[m better than previous
+[33me6f575f2[m a better looking frontend
+[33m00ba202e[m chat system works
+[33m22a32a14[m notification system added
+[33m3715e770[m before adding user registration features
+[33m05169908[m working project

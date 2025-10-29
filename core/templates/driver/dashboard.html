@@ -1,0 +1,986 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Driver Dashboard - Smart Transport{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Driver Dashboard Styles */
+    .dashboard-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .dashboard-header {
+        background: white;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        margin-bottom: 30px;
+    }
+
+    .welcome-section {
+        margin-bottom: 20px;
+    }
+
+    .welcome-title {
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--secondary);
+        margin-bottom: 10px;
+    }
+
+    .driver-info {
+        display: flex;
+        gap: 30px;
+        flex-wrap: wrap;
+    }
+
+    .info-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .info-label {
+        font-weight: 600;
+        color: #6b7280;
+    }
+
+    .info-value {
+        color: var(--dark);
+        font-weight: 600;
+    }
+
+    .dashboard-section {
+        background: white;
+        padding: 25px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        margin-bottom: 25px;
+    }
+
+    .section-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--secondary);
+        margin-bottom: 20px;
+        border-bottom: 2px solid #e5e7eb;
+        padding-bottom: 10px;
+    }
+
+    .tracking-controls {
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+
+    .tracking-btn {
+        padding: 12px 24px;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-size: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .start-tracking {
+        background-color: #10b981;
+        color: white;
+    }
+
+    .start-tracking:hover:not(:disabled) {
+        background-color: #059669;
+        transform: translateY(-2px);
+    }
+
+    .stop-tracking {
+        background-color: #ef4444;
+        color: white;
+    }
+
+    .stop-tracking:hover:not(:disabled) {
+        background-color: #dc2626;
+        transform: translateY(-2px);
+    }
+
+    .tracking-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none !important;
+    }
+
+    .tracking-status {
+        padding: 15px;
+        background-color: #f8fafc;
+        border-radius: 8px;
+        border-left: 4px solid var(--primary);
+        margin: 15px 0;
+        font-weight: 600;
+    }
+
+    /* Seat Grid Styles */
+    .seat-grid {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: 80px 40px 40px 40px 40px 40px;
+        grid-auto-rows: 48px;
+        max-width: 400px;
+        margin: 20px 0;
+        padding: 20px;
+        background: #f8fafc;
+        border-radius: 12px;
+    }
+
+    .seat-btn {
+        width: 40px;
+        height: 40px;
+        border: none;
+        border-radius: 6px;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .seat-available {
+        background-color: #10b981;
+    }
+
+    .seat-occupied {
+        background-color: #ef4444;
+    }
+
+    .seat-btn:hover {
+        transform: scale(1.1);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .seat-info {
+        color: #6b7280;
+        font-size: 0.9rem;
+        margin-top: 10px;
+    }
+
+    /* Notifications Styles */
+    .notifications-container {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .notifications-header {
+        background: var(--secondary);
+        color: white;
+        padding: 15px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .notifications-badge {
+        background: #ef4444;
+        color: white;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-left: 10px;
+    }
+
+    .clear-btn {
+        background: rgba(255, 255, 255, 0.2);
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.8rem;
+        transition: background 0.3s;
+    }
+
+    .clear-btn:hover {
+        background: rgba(255, 255, 255, 0.3);
+    }
+
+    .notifications-list {
+        height: 150px;
+        overflow-y: auto;
+        padding: 15px;
+        background: #fafafa;
+    }
+
+    .notification-item {
+        padding: 10px;
+        margin-bottom: 8px;
+        background: white;
+        border-radius: 6px;
+        border-left: 4px solid var(--accent);
+        cursor: pointer;
+        transition: background 0.3s;
+    }
+
+    .notification-item:hover {
+        background: #f3f4f6;
+    }
+
+    .notification-item.selected {
+        background: #e0f2fe;
+        border-left-color: var(--primary);
+    }
+
+    /* Chat Styles */
+    .chat-container {
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .chat-header {
+        background: var(--secondary);
+        color: white;
+        padding: 15px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .chat-log {
+        height: 200px;
+        overflow-y: auto;
+        padding: 15px;
+        background: #fafafa;
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    .chat-message {
+        margin-bottom: 10px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        max-width: 80%;
+    }
+
+    .message-driver {
+        background: var(--primary);
+        color: white;
+        margin-left: auto;
+    }
+
+    .message-user {
+        background: white;
+        border: 1px solid #e5e7eb;
+        margin-right: auto;
+    }
+
+    .chat-input-container {
+        display: flex;
+        padding: 15px;
+        gap: 10px;
+        background: white;
+    }
+
+    .chat-input {
+        flex: 1;
+        padding: 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 1rem;
+    }
+
+    .send-btn {
+        background: var(--primary);
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 600;
+        transition: background 0.3s;
+    }
+
+    .send-btn:hover {
+        background: var(--secondary);
+    }
+
+    /* Bus Creation Form */
+    .bus-creation-form {
+        background: #f8fafc;
+        padding: 25px;
+        border-radius: 12px;
+        border: 2px dashed #cbd5e1;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    .form-label {
+        display: block;
+        font-weight: 600;
+        color: var(--dark);
+        margin-bottom: 8px;
+    }
+
+    .form-input {
+        width: 100%;
+        max-width: 300px;
+        padding: 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 1rem;
+    }
+
+    .form-input:focus {
+        border-color: var(--primary);
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(26, 86, 219, 0.1);
+    }
+
+    .create-bus-btn {
+        background: var(--primary);
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .create-bus-btn:hover {
+        background: var(--secondary);
+        transform: translateY(-2px);
+    }
+
+    .pending-verification {
+        background: #fef3c7;
+        border: 2px solid #f59e0b;
+        padding: 30px;
+        border-radius: 12px;
+        text-align: center;
+    }
+
+    .pending-verification h3 {
+        font-size: 1.5rem;
+        color: #92400e;
+        margin-bottom: 10px;
+    }
+
+    .no-route-assigned {
+        background: #fee2e2;
+        border: 2px solid #ef4444;
+        padding: 30px;
+        border-radius: 12px;
+        text-align: center;
+    }
+
+    .no-route-assigned h3 {
+        font-size: 1.5rem;
+        color: #991b1b;
+        margin-bottom: 10px;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .dashboard-container {
+            padding: 10px;
+        }
+
+        .dashboard-header {
+            padding: 20px;
+        }
+
+        .welcome-title {
+            font-size: 1.5rem;
+        }
+
+        .driver-info {
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .tracking-controls {
+            flex-direction: column;
+        }
+
+        .tracking-btn {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .seat-grid {
+            max-width: 100%;
+        }
+
+        .chat-input-container {
+            flex-direction: column;
+        }
+
+        .send-btn {
+            width: 100%;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <!-- Dashboard Header -->
+    <div class="dashboard-header">
+        <div class="welcome-section">
+            <h1 class="welcome-title">🚗 Driver Dashboard</h1>
+            <p style="color: #6b7280;">Welcome back, <strong>{{ request.user.username }}</strong>!</p>
+        </div>
+        <div class="driver-info">
+            <div class="info-item">
+                <span class="info-label">Vehicle Number:</span>
+                <span class="info-value">{{ driver.vehicle_number }}</span>
+            </div>
+            {% if bus %}
+                <div class="info-item">
+                    <span class="info-label">Bus ID:</span>
+                    <span class="info-value" id="busIdDisplay">{{ bus.id }}</span>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if driver.verified %}
+        {% if route and bus %}
+            <!-- Tracking Section -->
+            <div class="dashboard-section">
+                <h2 class="section-title">📍 Live Location Tracking</h2>
+                <div class="tracking-controls">
+                    <button id="startTracking" class="tracking-btn start-tracking">
+                        ▶️ Start Tracking
+                    </button>
+                    <button id="stopTracking" class="tracking-btn stop-tracking" disabled>
+                        ⏹️ Stop Tracking
+                    </button>
+                </div>
+                <div id="trackingStatus" class="tracking-status" style="display: none;"></div>
+            </div>
+
+            <!-- Seat Management Section -->
+            <div class="dashboard-section">
+                <h2 class="section-title">💺 Seat Arrangement ({{ bus.total_seats }} seats)</h2>
+                <div class="seat-grid">
+                    {% for seat, row, col in seat_grid_columns %}
+                        <button class="seat-btn {% if seat.is_available %}seat-available{% else %}seat-occupied{% endif %}" 
+                            data-seat-id="{{ seat.id }}" 
+                            style="grid-column: {{ col }}; grid-row: {{ row }};">
+                            {{ seat.seat_number }}
+                        </button>
+                    {% endfor %}
+                </div>
+                <div class="seat-info">
+                    🟢 Click a seat to toggle availability | Green = Available | Red = Occupied
+                </div>
+            </div>
+
+            <!-- Notifications Section -->
+            <div class="dashboard-section">
+                <h2 class="section-title">🔔 Pickup Notifications</h2>
+                <div class="notifications-container">
+                    <div class="notifications-header">
+                        <div>
+                            <strong>Notifications</strong>
+                            <span id="notifBadge" class="notifications-badge" style="display: none;">0</span>
+                        </div>
+                        <button id="clearAllNotifs" class="clear-btn">Clear All</button>
+                    </div>
+                    <div id="driverNotifications" class="notifications-list">
+                        <div style="text-align: center; color: #9ca3af; padding: 20px;">
+                            No notifications yet
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Section -->
+            <div class="dashboard-section">
+                <h2 class="section-title">💬 Chat with Passengers</h2>
+                <div class="chat-container">
+                    <div class="chat-header">
+                        <strong>Conversation</strong>
+                        <button id="clearDriverChat" class="clear-btn">Clear Chat</button>
+                    </div>
+                    <div id="driverChatLog" class="chat-log">
+                        <div style="text-align: center; color: #9ca3af; padding: 20px;">
+                            Select a notification to start chatting
+                        </div>
+                    </div>
+                    <div class="chat-input-container">
+                        <input id="driverChatInput" class="chat-input" placeholder="Type your message..." />
+                        <button id="driverSendChat" class="send-btn">Send</button>
+                    </div>
+                </div>
+            </div>
+
+        {% elif route and not bus %}
+            <!-- Bus Creation Form -->
+            <div class="dashboard-section">
+                <h2 class="section-title">🚌 Create Your Bus</h2>
+                <div class="bus-creation-form">
+                    <p style="margin-bottom: 20px; color: #6b7280;">
+                        You need to create a bus to start operating. Please fill in the details below:
+                    </p>
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="form-group">
+                            <label class="form-label">Total Seats *</label>
+                            <input type="number" name="total_seats" min="10" max="60" value="25" 
+                                   class="form-input" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Bus Number Plate *</label>
+                            <input type="text" name="number_plate" class="form-input" 
+                                   placeholder="e.g., BA 1 PA 8271" required>
+                        </div>
+                        <button type="submit" class="create-bus-btn">
+                            ✓ Create Bus
+                        </button>
+                    </form>
+                </div>
+            </div>
+        {% else %}
+            <!-- No Route Assigned -->
+            <div class="no-route-assigned">
+                <h3>⚠️ No Route Assigned</h3>
+                <p>Please contact the administrator to assign a route to your account.</p>
+            </div>
+        {% endif %}
+    {% else %}
+        <!-- Pending Verification -->
+        <div class="pending-verification">
+            <h3>⏳ Verification Pending</h3>
+            <p>Your driver account is pending admin verification. You will be notified once approved.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+{% if route and bus %}
+// Location Tracking System
+let socket;
+let geoWatchId = null;
+const busId = "{{ bus.id }}";
+const startBtn = document.getElementById('startTracking');
+const stopBtn = document.getElementById('stopTracking');
+const status = document.getElementById('trackingStatus');
+
+startBtn.addEventListener('click', function() {
+    if (socket && socket.readyState === WebSocket.OPEN) return;
+    
+    const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws/location/' + busId + '/';
+    socket = new WebSocket(wsUrl);
+    
+    socket.onopen = function() {
+        status.style.display = 'block';
+        status.innerHTML = '✅ Tracking started successfully!';
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        
+        // Start sending geolocation
+        if (navigator.geolocation) {
+            geoWatchId = navigator.geolocation.watchPosition(
+                function(position) {
+                    const data = {
+                        type: 'location',
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+                    console.log("Sending location:", data);
+                    socket.send(JSON.stringify(data));
+                }, 
+                function(error) {
+                    status.innerHTML = '❌ Geolocation error: ' + error.message;
+                    console.error("Geolocation error:", error);
+                }, 
+                { enableHighAccuracy: true }
+            );
+        } else {
+            status.innerHTML = '❌ Geolocation is not supported by this browser.';
+            console.error("Geolocation is not supported by this browser.");
+        }
+    };
+    
+    socket.onerror = function(error) {
+        status.innerHTML = '❌ WebSocket error. Please try again.';
+        console.error("WebSocket error:", error);
+    };
+    
+    socket.onclose = function() {
+        status.innerHTML = '⚠️ Connection closed.';
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+    };
+});
+
+stopBtn.addEventListener('click', function() {
+    if (socket) {
+        socket.close();
+    }
+    if (geoWatchId !== null) {
+        navigator.geolocation.clearWatch(geoWatchId);
+        geoWatchId = null;
+    }
+    status.innerHTML = '⏹️ Tracking stopped.';
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+});
+
+// Seat toggle functionality
+document.querySelectorAll('.seat-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        const seatId = this.getAttribute('data-seat-id');
+        
+        fetch('/api/toggle_seat/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}',
+            },
+            body: JSON.stringify({ seat_id: seatId })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                if (data.is_available) {
+                    this.classList.remove('seat-occupied');
+                    this.classList.add('seat-available');
+                } else {
+                    this.classList.remove('seat-available');
+                    this.classList.add('seat-occupied');
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error toggling seat:', error);
+        });
+    });
+});
+{% endif %}
+
+// Real-time notifications and chat system
+{% if request.user.is_authenticated and request.user.driver_profile %}
+(function(){
+    const driverId = {{ request.user.id }};
+    const chatRoom = 'driver_' + driverId;
+    const driverSocket = new WebSocket(
+        (location.protocol === 'https:' ? 'wss://' : 'ws://') + 
+        window.location.host + '/ws/chat/' + chatRoom + '/'
+    );
+
+    // Socket connection handlers
+    driverSocket.onopen = function(){ 
+        console.log('Driver chat socket opened:', chatRoom); 
+    };
+    
+    driverSocket.onerror = function(error){
+        console.error('Driver WebSocket error:', error);
+    };
+
+    const notifBox = document.getElementById('driverNotifications');
+    const notifBadge = document.getElementById('notifBadge');
+    const chatLog = document.getElementById('driverChatLog');
+    const chatInput = document.getElementById('driverChatInput');
+    const sendBtn = document.getElementById('driverSendChat');
+
+    // Notification badge management
+    function setBadge(count){
+        if (!notifBadge) return;
+        if (count && count > 0) {
+            notifBadge.innerText = count;
+            notifBadge.style.display = 'inline-block';
+        } else {
+            notifBadge.style.display = 'none';
+        }
+    }
+
+    // Load initial notifications
+    fetch('/driver/notifications/')
+        .then(r => r.json())
+        .then(data => {
+            if (data && typeof data.unread_count !== 'undefined') {
+                setBadge(data.unread_count);
+            }
+            if (data.recent && Array.isArray(data.recent)){
+                notifBox.innerHTML = ''; // Clear placeholder
+                data.recent.forEach(function(p){
+                    addNotification(p);
+                });
+            }
+        })
+        .catch(console.error);
+
+    // WebSocket message handler
+    driverSocket.onmessage = function(e){
+        let data;
+        try {
+            data = JSON.parse(e.data);
+        } catch(err){
+            console.error('Driver WS parse error', err, e.data);
+            return;
+        }
+
+        if (data.type === 'pickup_notification') {
+            addNotification(data);
+            // Update badge count
+            const current = parseInt(notifBadge.innerText || '0') || 0;
+            setBadge(current + 1);
+        } else if (data.type === 'chat_message') {
+            addChatMessage(data);
+        }
+    };
+
+    function addNotification(notification) {
+        // Clear placeholder on first notification
+        if (notifBox.innerHTML.includes('No notifications')) {
+            notifBox.innerHTML = '';
+        }
+        
+        const el = document.createElement('div');
+        el.className = 'notification-item';
+        el.innerHTML = `
+            <strong>🚏 Pickup Request</strong><br>
+            From: ${notification.user_username || 'User #' + notification.user_id}<br>
+            Stop: ${notification.stop}<br>
+            <small>${new Date().toLocaleTimeString()}</small>
+        `;
+        el.setAttribute('data-user-id', notification.user_id);
+        el.setAttribute('data-pickup-id', notification.pickup_id || '');
+        
+        el.addEventListener('click', function() {
+            // Mark as selected
+            document.querySelectorAll('.notification-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            this.classList.add('selected');
+            
+            // Mark as seen and update badge
+            if (notification.pickup_id) {
+                markPickupSeen(notification.pickup_id);
+            }
+            
+            // Load chat history with this user
+            loadChatHistory(notification.user_id);
+        });
+        
+        notifBox.appendChild(el);
+        notifBox.scrollTop = notifBox.scrollHeight;
+    }
+
+    function addChatMessage(message) {
+        // Clear placeholder on first message
+        if (chatLog.innerHTML.includes('Select a notification')) {
+            chatLog.innerHTML = '';
+        }
+        
+        const el = document.createElement('div');
+        el.className = `chat-message ${message.sender_id === {{ request.user.id }} ? 'message-driver' : 'message-user'}`;
+        el.innerHTML = `
+            <strong>${message.sender_name || 'User'}:</strong> ${message.content}<br>
+            <small>${new Date().toLocaleTimeString()}</small>
+        `;
+        chatLog.appendChild(el);
+        chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    function markPickupSeen(pickupId) {
+        fetch('/api/mark_pickup_seen/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: 'pickup_id=' + encodeURIComponent(pickupId)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.status === 'ok') {
+                const current = parseInt(notifBadge.innerText || '0') || 1;
+                setBadge(Math.max(0, current - 1));
+            }
+        })
+        .catch(console.error);
+    }
+
+    function loadChatHistory(userId) {
+        fetch('/messages/' + userId + '/')
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.status === 'success' && Array.isArray(data.messages)) {
+                    chatLog.innerHTML = '';
+                    data.messages.forEach(function(m){
+                        addChatMessage({
+                            sender_id: m.sender === '{{ request.user.username }}' ? {{ request.user.id }} : userId,
+                            sender_name: m.sender,
+                            content: m.content
+                        });
+                    });
+                }
+            })
+            .catch(console.error);
+    }
+
+    // Send chat message
+    sendBtn.addEventListener('click', function(){
+        const content = chatInput.value.trim();
+        if (!content) return;
+        
+        const selectedNotification = document.querySelector('.notification-item.selected');
+        const recipientId = selectedNotification ? selectedNotification.getAttribute('data-user-id') : null;
+        
+        if (!recipientId) {
+            alert('Please select a passenger from notifications first.');
+            return;
+        }
+
+        const payload = {
+            type: 'chat_message',
+            content: content,
+            recipient_id: parseInt(recipientId),
+            bus_id: {% if bus %}{{ bus.id }}{% else %}null{% endif %}
+        };
+        
+        driverSocket.send(JSON.stringify(payload));
+        chatInput.value = '';
+    });
+
+    // Clear all notifications
+    document.getElementById('clearAllNotifs').addEventListener('click', function(){
+        if (!confirm('Clear all pickup notifications?')) return;
+        
+        fetch('/api/clear_all_pickups/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': '{{ csrf_token }}'
+            }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.status === 'ok') {
+                notifBox.innerHTML = '<div style="text-align: center; color: #9ca3af; padding: 20px;">No notifications yet</div>';
+                setBadge(0);
+            }
+        })
+        .catch(console.error);
+    });
+
+    // Clear chat
+    document.getElementById('clearDriverChat').addEventListener('click', function(){
+        const selectedNotification = document.querySelector('.notification-item.selected');
+        const recipientId = selectedNotification ? selectedNotification.getAttribute('data-user-id') : null;
+        
+        if (!recipientId) {
+            alert('Please select a conversation first.');
+            return;
+        }
+        
+        if (!confirm('Clear all messages with this user?')) return;
+        
+        fetch('/api/clear_chat/' + recipientId + '/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': '{{ csrf_token }}'
+            }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.status === 'success') {
+                chatLog.innerHTML = '<div style="text-align: center; color: #9ca3af; padding: 20px;">Select a notification to start chatting</div>';
+            }
+        })
+        .catch(console.error);
+    });
+
+    // Enter key to send message
+    chatInput.addEventListener('keypress', function(e){
+        if (e.key === 'Enter') {
+            sendBtn.click();
+        }
+    });
+
+})();
+{% endif %}
+</script>
+{% endblock %}
+```
+
+## ✨ Key Features of the Professional Design:
+
+### 1. **Beautiful Dashboard Header**
+```
+┌────────────────────────────────────┐
+│ 🚗 Driver Dashboard                │
+│ Welcome back, John!                │
+│ Vehicle: BA 1 PA 8271 | Bus ID: 5  │
+└────────────────────────────────────┘
+```
+- White card with shadow
+- Blue title
+- Professional info display
+
+### 2. **Professional Sections**
+- 📍 **Live Location Tracking** - Start/Stop buttons
+- 💺 **Seat Arrangement** - Interactive grid
+- 🔔 **Pickup Notifications** - With badge counter
+- 💬 **Chat with Passengers** - Real-time messaging
+
+### 3. **Enhanced Tracking Controls**
+```
+[▶️ Start Tracking] [⏹️ Stop Tracking]
+✅ Tracking started successfully!
+```
+- Green start button
+- Red stop button
+- Status messages with icons
+- Hover effects
+
+### 4. **Beautiful Seat Grid**
+- Light gray background container
+- Green (available) / Red (occupied)
+- Hover scale effect
+- 6-column layout with driver seat
+
+### 5. **Professional Notifications**
+```
+┌──────────────────────────────────┐
+│ Notifications [🔴 2]  [Clear All]│
+├──────────────────────────────────┤
+│ 🚏 Pickup Request                │
+│ From: User #123                  │
+│ Stop: Ratnapark                  │
+│ 2:30 PM                          │
+└──────────────────────────────────┘
+```
+- Blue header
+- Red badge counter
+- Orange left border
+- Click to select
+- Selected state (light blue bg)
+
+### 6. **Chat Interface**
+```
+┌──────────────────────────────────┐
+│ Conversation        [Clear Chat] │
+├──────────────────────────────────┤
+│ Driver: Hello                    │
+│ User: Thanks!                    │
+├──────────────────────────────────┤
+│ [Type message...] [Send]         │
+└──────────────────────────────────┘

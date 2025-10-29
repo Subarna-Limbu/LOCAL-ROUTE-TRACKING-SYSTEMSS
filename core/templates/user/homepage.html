@@ -1,0 +1,372 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Home - Smart Local Transportation System{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Bus Tracking Section */
+    .bus-tracking {
+        padding: 80px 0;
+        background: url('{% static "localbus.jpeg" %}') center/cover;
+        color: white;
+        position: relative;
+        border-radius: 0px;
+        overflow: hidden;
+        box-shadow: 0 10px 25px rgba(19, 15, 15, 0.1);
+        margin-bottom: 40px;
+    }
+    
+    .bus-tracking::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 1;
+    }
+  
+    .bus-content {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 50px;
+        align-items: center;
+        position: relative;
+        z-index: 2;
+    }
+
+    .bus-text h2 {
+        font-size: 2.8rem;
+        line-height: 1.2;
+        margin-bottom: 20px;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    .bus-text h2 span {
+        display: block;
+    }
+
+    .bus-text p {
+        font-size: 1.3rem;
+        margin-bottom: 30px;
+        max-width: 500px;
+    }
+
+    .bus-form {
+        background: white;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    .form-title {
+        color: var(--secondary);
+        text-align: center;
+        margin-bottom: 25px;
+        font-size: 1.6rem;
+        font-weight: 700;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        color: var(--dark);
+        font-weight: 600;
+    }
+
+    .form-group input,
+    .form-group select {
+        width: 100%;
+        padding: 14px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        font-size: 1rem;
+        transition: border-color 0.3s;
+        color: black;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+        border-color: var(--primary);
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(26, 86, 219, 0.1);
+    }
+
+    .form-button {
+        display: block;
+        width: 100%;
+        background-color: var(--accent);
+        color: white;
+        border: none;
+        padding: 15px;
+        border-radius: 8px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color 0.3s, transform 0.2s;
+    }
+
+    .form-button:hover {
+        background-color: #e55a2b;
+        transform: translateY(-2px);
+    }
+
+    /* Results Section */
+    .results-section {
+        padding: 40px 0;
+    }
+
+    .results-container {
+        background: white;
+        padding: 30px;
+        border-radius: 12px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        margin-top: 30px;
+    }
+
+    .results-title {
+        font-size: 1.8rem;
+        color: var(--secondary);
+        margin-bottom: 20px;
+        text-align: center;
+        font-weight: 700;
+    }
+
+    .bus-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .bus-item {
+        margin-bottom: 20px;
+        padding: 20px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background-color: #f9fafb;
+        transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    .bus-item:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .bus-route {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: var(--secondary);
+        margin-bottom: 10px;
+    }
+
+    .bus-details {
+        margin-bottom: 15px;
+        color: var(--dark);
+    }
+
+    .bus-details span {
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    .track-link {
+        display: inline-block;
+        background-color: var(--primary);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 6px;
+        text-decoration: none;
+        font-weight: 600;
+        transition: background-color 0.3s, transform 0.2s;
+    }
+
+    .track-link:hover {
+        background-color: var(--secondary);
+        transform: translateY(-2px);
+    }
+
+    /* Show passed buses checkbox */
+    .checkbox-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+
+    .checkbox-group input[type="checkbox"] {
+        width: auto;
+        transform: scale(1.2);
+        cursor: pointer;
+    }
+
+    .checkbox-group label {
+        margin-bottom: 0;
+        font-weight: 600;
+        color: var(--dark);
+        cursor: pointer;
+    }
+
+    /* Responsive Styles */
+    @media (max-width: 992px) {
+        .bus-content {
+            grid-template-columns: 1fr;
+            gap: 40px;
+        }
+        
+        .bus-text {
+            text-align: center;
+        }
+        
+        .bus-text p {
+            margin: 0 auto 30px;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .bus-tracking {
+            padding: 60px 0;
+        }
+        
+        .bus-text h2 {
+            font-size: 2.2rem;
+        }
+        
+        .bus-text p {
+            font-size: 1.1rem;
+        }
+        
+        .bus-form {
+            padding: 20px;
+        }
+        
+        .results-title {
+            font-size: 1.5rem;
+        }
+        
+        .bus-route {
+            font-size: 1.2rem;
+        }
+    }
+
+    @media (max-width: 576px) {
+        .bus-tracking {
+            padding: 40px 0;
+        }
+        
+        .bus-text h2 {
+            font-size: 1.8rem;
+        }
+        
+        .form-title {
+            font-size: 1.3rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Bus Tracking Section -->
+<section class="bus-tracking">
+    <div class="container mx-auto px-4">
+        <div class="bus-content">
+            <div class="bus-text">
+                <h2>Real-Time Bus <span>Tracking in Nepal</span></h2>
+                <p>Your reliable partner for safe and efficient travel.</p>
+            </div>
+            <div class="bus-form">
+                <h3 class="form-title">Search Buses</h3>
+                <form method="get">
+                    <div class="form-group">
+                        <label for="pickup">Pickup Point:</label>
+                        <select id="pickup" name="pickup" required>
+                            <option value="">Select Pickup</option>
+                            {% for stop in stops %}
+                                <option value="{{ stop.id }}" {% if pickup_id == stop.id %}selected{% endif %}>{{ stop.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="destination">Destination Point:</label>
+                        <select id="destination" name="destination" required>
+                            <option value="">Select Destination</option>
+                            {% for stop in stops %}
+                                <option value="{{ stop.id }}" {% if destination_id == stop.id %}selected{% endif %}>{{ stop.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="show_passed" name="show_passed" value="1" {% if show_passed %}checked{% endif %} />
+                        <label for="show_passed">Show passed buses</label>
+                    </div>
+                    <button type="submit" class="form-button">Search Buses</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Results Section -->
+{% if buses_info %}
+<section class="results-section">
+    <div class="container mx-auto px-4">
+        <div class="results-container">
+            <h3 class="results-title">Available Buses</h3>
+            <ul class="bus-list">
+                {% for info in buses_info %}
+                    <li class="bus-item">
+                        <div class="bus-route">{{ info.route.name }}</div>
+                        <div class="bus-details">
+                            <span><strong>Bus:</strong> {{ info.bus.number_plate }}</span>
+                            <span><strong>ETA to pickup:</strong> {{ info.eta }} min</span>
+                            <span><strong>Available Seats:</strong> {{ info.available_seats }} / {{ info.bus.total_seats }}</span>
+                        </div>
+                        <a href="#" onclick="startTracking('{{ info.bus.id }}')" class="track-link">Track & View Seats</a>
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Function to redirect to the bus tracking page
+    function startTracking(busId) {
+        window.location.href = '/track/' + busId + '/';
+    }
+
+    // Enhanced form validation
+    document.querySelector('form').addEventListener('submit', function(e) {
+        const pickup = document.getElementById('pickup').value;
+        const destination = document.getElementById('destination').value;
+        
+        if (!pickup || !destination) {
+            e.preventDefault();
+            alert('Please select both pickup and destination points.');
+            return false;
+        }
+        
+        if (pickup === destination) {
+            e.preventDefault();
+            alert('Pickup and destination cannot be the same.');
+            return false;
+        }
+    });
+
+    // Auto-focus on first form field
+    document.addEventListener('DOMContentLoaded', function() {
+        const pickupSelect = document.getElementById('pickup');
+        if (pickupSelect) {
+            pickupSelect.focus();
+        }
+    });
+</script>
+{% endblock %}

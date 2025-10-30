@@ -456,6 +456,46 @@
 
     {% if driver.verified %}
         {% if route and bus %}
+        <div class="dashboard-section" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 2px solid #3b82f6;">
+            <h2 class="section-title" style="border: none; padding-bottom: 0; margin-bottom: 15px;">
+                🔄 Route Management
+            </h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 250px;">
+                    <div style="font-size: 1.3rem; font-weight: 700; color: var(--secondary); margin-bottom: 8px;">
+                        📍 Current Route: {{ route.name }}
+                    </div>
+                    <div style="font-size: 0.95rem; color: #6b7280; margin-bottom: 4px;">
+                        🚏 {{ route.get_stops_list|length }} stops
+                    </div>
+                    {% if route.reverse_route %}
+                        <div style="font-size: 0.9rem; color: #3b82f6; font-weight: 600;">
+                            ↔️ Reverse available: {{ route.reverse_route.name }}
+                        </div>
+                    {% endif %}
+                </div>
+                <div>
+                    {% if route.reverse_route %}
+                        <button id="switchRouteBtn" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; border: none; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 1rem; cursor: pointer; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);">
+                            🔄 Switch to {{ route.reverse_route.name }}
+                        </button>
+                    {% else %}
+                        <button style="background: #9ca3af; color: white; border: none; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 1rem; cursor: not-allowed;" disabled>
+                            🚫 No Reverse Route
+                        </button>
+                    {% endif %}
+                </div>
+            </div>
+            
+            {% if route.reverse_route %}
+                <div style="background: white; padding: 15px; border-radius: 8px; margin-top: 15px; border-left: 4px solid #10b981;">
+                    <p style="margin: 0; color: #059669; font-size: 0.9rem;">
+                        <strong>💡 Pro Tip:</strong> After completing your route to the destination, 
+                        click "Switch Route" to start the return journey.
+                    </p>
+                </div>
+            {% endif %}
+        </div>
             <!-- Tracking Section -->
             <div class="dashboard-section">
                 <h2 class="section-title">📍 Live Location Tracking</h2>
@@ -1040,6 +1080,55 @@ document.querySelectorAll('.seat-btn').forEach(function(btn) {
     });
 
 })();
+{% endif %}
+{% if route and bus and route.reverse_route %}
+// ==================== ROUTE SWITCHING ====================
+const switchRouteBtn = document.getElementById('switchRouteBtn');
+
+if (switchRouteBtn) {
+    switchRouteBtn.addEventListener('click', function() {
+        if (this.disabled) return;
+        
+        const reverseRouteName = '{{ route.reverse_route.name|escapejs }}';
+        const confirmMsg = `Are you sure you want to switch to ${reverseRouteName}?\n\nThis will reset location tracking data.`;
+        
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+        
+        // Show loading state
+        this.disabled = true;
+        this.innerHTML = '⏳ Switching...';
+        
+        // Make API call
+        fetch('/api/switch_route/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert('✅ Route switched successfully!\n' + data.old_route + ' → ' + data.new_route);
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                alert('❌ ' + (data.error || 'Failed to switch route'));
+                this.disabled = false;
+                this.innerHTML = '🔄 Switch to {{ route.reverse_route.name|escapejs }}';
+            }
+        })
+        .catch(error => {
+            console.error('Route switch error:', error);
+            alert('❌ Network error. Please check your connection.');
+            this.disabled = false;
+            this.innerHTML = '🔄 Switch to {{ route.reverse_route.name|escapejs }}';
+        });
+    });
+}
 {% endif %}
 </script>
 {% endblock %}

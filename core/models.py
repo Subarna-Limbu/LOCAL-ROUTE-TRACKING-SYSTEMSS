@@ -103,6 +103,15 @@ class BusRoute(models.Model):
     polyline = models.TextField(null=True, blank=True)
     route_length_m = models.FloatField(null=True, blank=True)
 
+  # ⭐ ADD THIS NEW FIELD ⭐
+    reverse_route = models.ForeignKey(
+        'self', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='forward_route',
+        help_text="The reverse direction of this route"
+    )
     def get_stops_list(self):
         return [rs.stop for rs in self.routestop_set.order_by('order')]
 

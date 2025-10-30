@@ -1418,3 +1418,131 @@ def fetch_messages(request, other_user_id):
         return JsonResponse({'status': 'success', 'messages': data})
     except Exception as e:
         return JsonResponse({'status': 'error', 'error': str(e)})
+
+@login_required
+@require_POST
+def switch_route(request):
+    """
+    Switch driver's bus to the reverse route.
+    """
+    try:
+        # Verify user is a driver
+        if not hasattr(request.user, 'driver_profile'):
+            return JsonResponse({
+                'status': 'error', 
+                'error': 'Not authorized. User is not a driver.'
+            }, status=403)
+        
+        driver = request.user.driver_profile
+        bus = driver.buses.first()
+        
+        if not bus:
+            return JsonResponse({
+                'status': 'error',
+                'error': 'No bus found for this driver.'
+            }, status=404)
+        
+        current_route = bus.route
+        
+        if not current_route:
+            return JsonResponse({
+                'status': 'error',
+                'error': 'Bus has no current route assigned.'
+            }, status=400)
+        
+        # Get the reverse route
+        reverse_route = current_route.reverse_route
+        
+        if not reverse_route:
+            return JsonResponse({
+                'status': 'error',
+                'error': f'No reverse route configured for {current_route.name}. Please contact admin.'
+            }, status=400)
+        
+        # Perform the switch
+        old_route_name = current_route.name
+        new_route_name = reverse_route.name
+        
+        bus.route = reverse_route
+        
+        # Reset location tracking state when switching routes
+        bus.nearest_stop_index = None
+        bus.eta_seconds = None
+        bus.eta_smoothed_seconds = None
+        bus.eta_passed_counter = 0
+        
+        bus.save(update_fields=[
+            'route', 
+            'nearest_stop_index', 
+            'eta_seconds', 
+            'eta_smoothed_seconds',
+            'eta_passed_counter'
+        ])
+        
+        logger.info(
+            f'Driver {driver.user.username} (Bus {bus.number_plate}) '
+            f'switched route: {old_route_name} → {new_route_name}'
+        )
+        
+        return JsonResponse({
+            'status': 'success',
+            'message': f'Route switched successfully!',
+            'old_route': old_route_name,
+            'new_route': new_route_name,
+            'route_id': reverse_route.id,
+            'route_name': reverse_route.name
+        })
+        
+    except Exception as e:
+        logger.exception(f'Route switch failed: {e}')
+        return JsonResponse({
+            'status': 'error',
+            'error': f'Failed to switch route: {str(e)}'
+        }, status=500)
+
+
+@login_required
+def get_route_info(request):
+    """
+    Get current route information including reverse route availability.
+    """
+    try:
+        if not hasattr(request.user, 'driver_profile'):
+            return JsonResponse({
+                'status': 'error',
+                'error': 'Not authorized'
+            }, status=403)
+        
+        driver = request.user.driver_profile
+        bus = driver.buses.first()
+        
+        if not bus or not bus.route:
+            return JsonResponse({
+                'status': 'error',
+                'error': 'No route assigned'
+            }, status=404)
+        
+        current_route = bus.route
+        reverse_route = current_route.reverse_route
+        
+        return JsonResponse({
+            'status': 'success',
+            'current_route': {
+                'id': current_route.id,
+                'name': current_route.name,
+                'stops_count': len(current_route.get_stops_list())
+            },
+            'reverse_route': {
+                'id': reverse_route.id,
+                'name': reverse_route.name,
+                'stops_count': len(reverse_route.get_stops_list())
+            } if reverse_route else None,
+            'can_switch': bool(reverse_route)
+        })
+        
+    except Exception as e:
+        logger.exception(f'Get route info failed: {e}')
+        return JsonResponse({
+            'status': 'error',
+            'error': str(e)
+        }, status=500)

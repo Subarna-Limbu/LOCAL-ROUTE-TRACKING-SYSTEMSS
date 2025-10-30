@@ -111,3 +111,24 @@ DEFAULT_FROM_EMAIL = 'Smart Transport <prasantlim401@gmail.com>'
 
 # OTP Settings
 OTP_EXPIRY_MINUTES = 10  # OTP expires in 10 minutes
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'core': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}

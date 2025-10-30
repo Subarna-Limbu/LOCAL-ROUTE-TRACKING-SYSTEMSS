@@ -307,7 +307,6 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-
 def homepage(request):
     from .dsa import dijkstra, find_best_route
     
@@ -348,25 +347,7 @@ def homepage(request):
     
     show_passed = request.GET.get('show_passed', '0') == '1'
     
-    # NEW: Find best route using Dijkstra
-    best_route = None
-    route_path = []
-    route_coordinates = []
-    
     if pickup_id and destination_id:
-        # Use Dijkstra to find best route
-        best_route, best_distance, path_stop_ids = find_best_route(routes, pickup_id, destination_id)
-        
-        if best_route:
-            # Get coordinates for the path
-            route_path = path_stop_ids
-            all_stops = best_route.get_stops_list()
-            route_coordinates = [
-                [stop.latitude, stop.longitude] 
-                for stop in all_stops 
-                if stop.id in path_stop_ids
-            ]
-        
         # Find all routes containing both stops
         matching_routes = []
         for route in routes:
@@ -461,10 +442,9 @@ def homepage(request):
         'pickup_id': pickup_id,
         'destination_id': destination_id,
         'show_passed': show_passed,
-        'route_coordinates': route_coordinates,  # NEW: For drawing route on map
-        'best_route': best_route,  # NEW: For highlighting best route
     }
     return render(request, 'user/homepage.html', context)
+
 
 def driver_login(request):
     if request.method == 'POST':

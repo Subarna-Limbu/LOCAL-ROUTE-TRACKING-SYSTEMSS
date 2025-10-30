@@ -796,128 +796,221 @@ if (routeCoords && routeCoords.length > 0) {
         map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
     }
     
-    // ===== ADD BUS STOPS WITH BUS STOP ICONS =====
-function addBusStopMarkers(coordinates) {
-    // Get stop names from your route (if available in context)
-    const stopNames = [
-        {% for stop in bus.route.get_stops_list %}
-            "{{ stop.name }}"{% if not forloop.last %},{% endif %}
-        {% endfor %}
-    ];
+// Draw route line on map with REAL ROADS AND HIGHLIGHTED SEGMENT
+{% if bus.route %}
+const routeCoords = {{ bus.route.get_route_coordinates|safe }};
+
+// Get pickup and destination from the URL/context if available
+const urlParams = new URLSearchParams(window.location.search);
+const pickupStopName = urlParams.get('pickup') || '{{ default_pickup }}';
+const destinationStopName = urlParams.get('destination') || '';
+
+if (routeCoords && routeCoords.length > 0) {
     
-    coordinates.forEach((coord, index) => {
-        const isFirst = index === 0;
-        const isLast = index === coordinates.length - 1;
-        const stopName = stopNames[index] || `Stop ${index + 1}`;
-        
-        let stopIcon, popupContent, iconSize;
-        
-        if (isFirst) {
-            // First stop (Pickup - Larger Green)
-            iconSize = 36;
-            stopIcon = L.divIcon({
-                html: `
-                    <div style="
-                        width: ${iconSize}px;
-                        height: ${iconSize}px;
-                        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-                        border: 3px solid white;
-                        border-radius: 50%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-                        font-size: 20px;
-                        animation: pulse-green 2s infinite;
-                    ">🚏</div>
-                    <style>
-                        @keyframes pulse-green {
-                            0%, 100% { box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4); }
-                            50% { box-shadow: 0 4px 20px rgba(16, 185, 129, 0.8); }
-                        }
-                    </style>
-                `,
-                className: '',
-                iconSize: [iconSize, iconSize],
-                iconAnchor: [iconSize/2, iconSize/2]
-            });
-            popupContent = `<div style="text-align: center;"><b style="color: #10b981; font-size: 16px;">📍 ${stopName}</b><br><small style="color: #059669; font-weight: 600;">Pickup Point</small></div>`;
-            
-        } else if (isLast) {
-            // Last stop (Destination - Larger Red)
-            iconSize = 36;
-            stopIcon = L.divIcon({
-                html: `
-                    <div style="
-                        width: ${iconSize}px;
-                        height: ${iconSize}px;
-                        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-                        border: 3px solid white;
-                        border-radius: 50%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
-                        font-size: 20px;
-                        animation: pulse-red 2s infinite;
-                    ">🎯</div>
-                    <style>
-                        @keyframes pulse-red {
-                            0%, 100% { box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4); }
-                            50% { box-shadow: 0 4px 20px rgba(239, 68, 68, 0.8); }
-                        }
-                    </style>
-                `,
-                className: '',
-                iconSize: [iconSize, iconSize],
-                iconAnchor: [iconSize/2, iconSize/2]
-            });
-            popupContent = `<div style="text-align: center;"><b style="color: #ef4444; font-size: 16px;">🎯 ${stopName}</b><br><small style="color: #dc2626; font-weight: 600;">Destination</small></div>`;
-            
-        } else {
-            // Middle stops (Regular Blue Bus Stops)
-            iconSize = 28;
-            stopIcon = L.divIcon({
-                html: `
-                    <div style="
-                        width: ${iconSize}px;
-                        height: ${iconSize}px;
-                        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-                        border: 2.5px solid white;
-                        border-radius: 50%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        box-shadow: 0 3px 8px rgba(59, 130, 246, 0.4);
-                        font-size: 16px;
-                    ">🚏</div>
-                `,
-                className: '',
-                iconSize: [iconSize, iconSize],
-                iconAnchor: [iconSize/2, iconSize/2]
-            });
-            popupContent = `<div style="text-align: center;"><b style="color: #3b82f6; font-size: 15px;">🚏 ${stopName}</b><br><small style="color: #2563eb;">Stop #${index}</small></div>`;
+    // Function to get route from OSRM
+    async function drawRealRoute(coordinates) {
+        if (coordinates.length < 2) {
+            routeLine = L.polyline(coordinates, {
+                color: '#9ca3af',
+                weight: 5,
+                opacity: 0.7,
+                smoothFactor: 1
+            }).addTo(map);
+            return;
         }
         
-        // Add marker with hover effect
-        const marker = L.marker(coord, { 
-            icon: stopIcon,
-            title: stopName
+        try {
+            const coords = coordinates.map(c => `${c[1]},${c[0]}`).join(';');
+            const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+            
+            console.log('🗺️ Fetching real route from OSRM...');
+            
+            const response = await fetch(osrmUrl);
+            const data = await response.json();
+            
+            if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+                const route = data.routes[0];
+                const routeCoordinates = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+                
+                console.log('✅ Real route loaded:', routeCoordinates.length, 'points');
+                
+                // ========================================
+                // STEP 1: Draw the FULL ROUTE in GRAY
+                // ========================================
+                routeLine = L.polyline(routeCoordinates, {
+                    color: '#9ca3af',
+                    weight: 6,
+                    opacity: 0.6,
+                    lineJoin: 'round',
+                    lineCap: 'round',
+                    smoothFactor: 1
+                }).addTo(map);
+                
+                // ========================================
+                // STEP 2: Find pickup and destination indices
+                // ========================================
+                const stopNames = [
+                    {% for stop in bus.route.get_stops_list %}
+                        "{{ stop.name }}"{% if not forloop.last %},{% endif %}
+                    {% endfor %}
+                ];
+                
+                let pickupIndex = -1;
+                let destinationIndex = -1;
+                
+                // Find indices by name
+                if (pickupStopName) {
+                    pickupIndex = stopNames.findIndex(name => 
+                        name.toLowerCase().trim() === pickupStopName.toLowerCase().trim()
+                    );
+                }
+                
+                if (destinationStopName) {
+                    destinationIndex = stopNames.findIndex(name => 
+                        name.toLowerCase().trim() === destinationStopName.toLowerCase().trim()
+                    );
+                }
+                
+                console.log('Pickup:', pickupStopName, 'Index:', pickupIndex);
+                console.log('Destination:', destinationStopName, 'Index:', destinationIndex);
+                
+                // ========================================
+                // STEP 3: Highlight PICKUP to DESTINATION in PURPLE
+                // ========================================
+                if (pickupIndex >= 0 && destinationIndex >= 0 && pickupIndex < destinationIndex) {
+                    // Get the coordinates for the highlighted segment
+                    const highlightCoords = coordinates.slice(pickupIndex, destinationIndex + 1);
+                    
+                    console.log('Highlighting segment from index', pickupIndex, 'to', destinationIndex);
+                    console.log('Segment coordinates:', highlightCoords);
+                    
+                    // Request OSRM route for just the highlighted segment
+                    const highlightCoordsStr = highlightCoords.map(c => `${c[1]},${c[0]}`).join(';');
+                    const osrmHighlightUrl = `https://router.project-osrm.org/route/v1/driving/${highlightCoordsStr}?overview=full&geometries=geojson`;
+                    
+                    const highlightResponse = await fetch(osrmHighlightUrl);
+                    const highlightData = await highlightResponse.json();
+                    
+                    if (highlightData.code === 'Ok' && highlightData.routes && highlightData.routes.length > 0) {
+                        const highlightRoute = highlightData.routes[0];
+                        const highlightRouteCoordinates = highlightRoute.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+                        
+                        // Draw PURPLE highlighted segment
+                        const highlightedLine = L.polyline(highlightRouteCoordinates, {
+                            color: '#9333ea',
+                            weight: 8,
+                            opacity: 0.9,
+                            lineJoin: 'round',
+                            lineCap: 'round',
+                            smoothFactor: 1
+                        }).addTo(map);
+                        
+                        // Add animated dashed overlay on purple segment
+                        const dashedHighlight = L.polyline(highlightRouteCoordinates, {
+                            color: '#c084fc',
+                            weight: 4,
+                            opacity: 0.7,
+                            dashArray: '10, 20',
+                            lineJoin: 'round',
+                            lineCap: 'round'
+                        }).addTo(map);
+                        
+                        // Animate the dashes on purple segment
+                        let offset = 0;
+                        setInterval(() => {
+                            offset = (offset + 1) % 30;
+                            dashedHighlight.setStyle({ dashOffset: -offset });
+                        }, 50);
+                        
+                        console.log('✅ Purple segment highlighted');
+                    }
+                } else {
+                    console.log('⚠️ Cannot highlight segment - invalid pickup/destination indices');
+                }
+                
+                // ===== ADD BUS STOPS AS MARKERS =====
+                addBusStopMarkers(coordinates);
+                
+                // Fit map to route
+                map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+                
+            } else {
+                console.warn('⚠️ OSRM routing failed, using simple line');
+                drawSimpleRoute(coordinates);
+                addBusStopMarkers(coordinates);
+            }
+        } catch (error) {
+            console.error('❌ Error fetching route:', error);
+            drawSimpleRoute(coordinates);
+            addBusStopMarkers(coordinates);
+        }
+    }
+    
+    // Fallback simple route
+    function drawSimpleRoute(coordinates) {
+        // Full route in gray
+        routeLine = L.polyline(coordinates, {
+            color: '#9ca3af',
+            weight: 5,
+            opacity: 0.6,
+            smoothFactor: 1,
+            lineJoin: 'round',
+            lineCap: 'round'
         }).addTo(map);
         
-        marker.bindPopup(popupContent);
+        // Highlight segment if pickup/destination available
+        const stopNames = [
+            {% for stop in bus.route.get_stops_list %}
+                "{{ stop.name }}"{% if not forloop.last %},{% endif %}
+            {% endfor %}
+        ];
         
-        // Add hover effect (scale up on mouseover)
-        marker.on('mouseover', function() {
-            this.getElement().style.transform = 'scale(1.2)';
-            this.getElement().style.transition = 'transform 0.2s ease';
-        });
+        let pickupIndex = -1;
+        let destinationIndex = -1;
         
-        marker.on('mouseout', function() {
-            this.getElement().style.transform = 'scale(1)';
-        });
-    });
-}
+        if (pickupStopName) {
+            pickupIndex = stopNames.findIndex(name => 
+                name.toLowerCase().trim() === pickupStopName.toLowerCase().trim()
+            );
+        }
+        
+        if (destinationStopName) {
+            destinationIndex = stopNames.findIndex(name => 
+                name.toLowerCase().trim() === destinationStopName.toLowerCase().trim()
+            );
+        }
+        
+        if (pickupIndex >= 0 && destinationIndex >= 0 && pickupIndex < destinationIndex) {
+            const highlightCoords = coordinates.slice(pickupIndex, destinationIndex + 1);
+            
+            // Purple highlighted segment
+            L.polyline(highlightCoords, {
+                color: '#9333ea',
+                weight: 8,
+                opacity: 0.9,
+                lineJoin: 'round',
+                lineCap: 'round'
+            }).addTo(map);
+            
+            // Animated dashes
+            const dashedHighlight = L.polyline(highlightCoords, {
+                color: '#c084fc',
+                weight: 4,
+                opacity: 0.7,
+                dashArray: '10, 20',
+                lineJoin: 'round',
+                lineCap: 'round'
+            }).addTo(map);
+            
+            let offset = 0;
+            setInterval(() => {
+                offset = (offset + 1) % 30;
+                dashedHighlight.setStyle({ dashOffset: -offset });
+            }, 50);
+        }
+        
+        map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+    }
     
     // Call the function to draw real route
     drawRealRoute(routeCoords);

@@ -440,6 +440,30 @@
             transform: translateX(0);
         }
     }
+    /* Animated dashed line effect */
+    @keyframes dash-animation {
+        to {
+            stroke-dashoffset: -25;
+        }
+    }
+
+    .animated-dash {
+        animation: dash-animation 1s linear infinite;
+    }
+
+    /* Ensure markers are above routes */
+    .custom-marker,
+    .bus-stop-marker {
+        z-index: 2000 !important;
+    }
+
+    /* Map container */
+    #map {
+        height: 500px;
+        width: 100%;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
 
     /* Login Prompt */
     .login-prompt {
@@ -695,6 +719,212 @@
     // Draw route line on map
 // Draw route line on map with REAL ROADS
 // Draw route line on map with REAL ROADS
+ // =========================================
+    // GLOBAL VARIABLES
+    // =========================================
+    let fullRoutePolyline = null;      // Complete driver route (gray)
+    let userSegmentPolyline = null;    // User's segment (purple)
+    let userSegmentDashed = null;      // Animated overlay
+    let busStopMarkers = [];           // Bus stop markers
+
+    // =========================================
+    // MAIN FUNCTION: Draw Route
+    // =========================================
+    async function drawRouteWithOSRM(routeCoordinates, userPickup, userDestination) {
+        
+        // Clear existing routes
+        if (fullRoutePolyline) map.removeLayer(fullRoutePolyline);
+        if (userSegmentPolyline) map.removeLayer(userSegmentPolyline);
+        if (userSegmentDashed) map.removeLayer(userSegmentDashed);
+
+        if (!routeCoordinates || routeCoordinates.length < 2) {
+            console.error('Invalid route coordinates');
+            return;
+        }
+
+        try {
+            // Build OSRM URL
+            const coordinates = routeCoordinates
+                .map(coord => `${coord[1]},${coord[0]}`)  // lon,lat format
+                .join(';');
+            
+            const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson`;
+            
+            // Fetch route from OSRM
+            const response = await fetch(osrmUrl);
+            const data = await response.json();
+
+            if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
+                console.error('OSRM error:', data);
+                return;
+            }
+
+            const fullRouteGeometry = data.routes[0].geometry;
+            const fullRouteLatLngs = fullRouteGeometry.coordinates.map(coord => [coord[1], coord[0]]);
+            
+            // Draw FULL DRIVER ROUTE (GRAY) - DO NOT MODIFY
+            fullRoutePolyline = L.polyline(fullRouteLatLngs, {
+                color: '#9ca3af',        // Gray
+                weight: 6,
+                opacity: 0.7,
+                lineJoin: 'round',
+                lineCap: 'round'
+            }).addTo(map);
+
+            console.log('✓ Full driver route drawn in gray');
+
+            // Add bus stop markers
+            addBusStopMarkers(routeCoordinates);
+
+            // HIGHLIGHT USER'S SEGMENT (PURPLE)
+            if (userPickup && userDestination) {
+                
+                const pickupIndex = findClosestPointIndex(fullRouteLatLngs, [userPickup.lat, userPickup.lon]);
+                const destIndex = findClosestPointIndex(fullRouteLatLngs, [userDestination.lat, userDestination.lon]);
+                
+                if (pickupIndex < destIndex) {
+                    
+                    const userSegmentLatLngs = fullRouteLatLngs.slice(pickupIndex, destIndex + 1);
+                    
+                    // Solid purple line
+                    userSegmentPolyline = L.polyline(userSegmentLatLngs, {
+                        color: '#9333ea',        // Purple
+                        weight: 6,
+                        opacity: 1,
+                        lineJoin: 'round',
+                        lineCap: 'round',
+                        zIndex: 1000             // On top
+                    }).addTo(map);
+
+                    console.log('✓ User segment highlighted in purple');
+
+                    // Animated dashed overlay
+                    userSegmentDashed = L.polyline(userSegmentLatLngs, {
+                        color: '#ffffff',
+                        weight: 3,
+                        opacity: 0.8,
+                        dashArray: '10, 15',
+                        lineJoin: 'round',
+                        lineCap: 'round',
+                        zIndex: 1001,
+                        className: 'animated-dash'
+                    }).addTo(map);
+
+                    // Pickup marker (Green P)
+                    L.marker([userPickup.lat, userPickup.lon], {
+                        icon: L.divIcon({
+                            className: 'custom-marker',
+                            html: `
+                                <div style="background: #10b981; color: white; 
+                                            padding: 8px; border-radius: 50%; 
+                                            width: 40px; height: 40px; 
+                                            display: flex; align-items: center; 
+                                            justify-content: center; font-weight: bold;
+                                            box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+                                    P
+                                </div>
+                            `,
+                            iconSize: [40, 40],
+                            iconAnchor: [20, 20]
+                        })
+                    }).addTo(map).bindPopup('<b>Pickup Location</b>');
+
+                    // Destination marker (Red D)
+                    L.marker([userDestination.lat, userDestination.lon], {
+                        icon: L.divIcon({
+                            className: 'custom-marker',
+                            html: `
+                                <div style="background: #ef4444; color: white; 
+                                            padding: 8px; border-radius: 50%; 
+                                            width: 40px; height: 40px; 
+                                            display: flex; align-items: center; 
+                                            justify-content: center; font-weight: bold;
+                                            box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+                                    D
+                                </div>
+                            `,
+                            iconSize: [40, 40],
+                            iconAnchor: [20, 20]
+                        })
+                    }).addTo(map).bindPopup('<b>Destination</b>');
+
+                    console.log('✓ Pickup and destination markers added');
+                }
+            }
+
+            // Fit map bounds
+            map.fitBounds(fullRoutePolyline.getBounds(), {
+                padding: [50, 50]
+            });
+
+            console.log('✓ Route visualization complete!');
+
+        } catch (error) {
+            console.error('Error drawing route:', error);
+        }
+    }
+
+    // =========================================
+    // HELPER: Find Closest Point
+    // =========================================
+    function findClosestPointIndex(routePoints, targetPoint) {
+        let closestIndex = 0;
+        let minDistance = Infinity;
+
+        for (let i = 0; i < routePoints.length; i++) {
+            const distance = getDistanceBetweenPoints(routePoints[i], targetPoint);
+            if (distance < minDistance) {
+                minDistance = distance;
+                closestIndex = i;
+            }
+        }
+
+        return closestIndex;
+    }
+
+    // =========================================
+    // HELPER: Calculate Distance
+    // =========================================
+    function getDistanceBetweenPoints(point1, point2) {
+        const latDiff = point1[0] - point2[0];
+        const lonDiff = point1[1] - point2[1];
+        return Math.sqrt(latDiff * latDiff + lonDiff * lonDiff);
+    }
+
+    // =========================================
+    // HELPER: Add Bus Stop Markers
+    // =========================================
+    function addBusStopMarkers(coordinates) {
+        // Clear existing markers
+        busStopMarkers.forEach(marker => map.removeLayer(marker));
+        busStopMarkers = [];
+
+        // Add marker for each stop
+        coordinates.forEach((coord, index) => {
+            const marker = L.marker([coord[0], coord[1]], {
+                icon: L.divIcon({
+                    className: 'bus-stop-marker',
+                    html: `
+                        <div style="background: white; border: 3px solid #3b82f6; 
+                                    border-radius: 50%; width: 24px; height: 24px; 
+                                    display: flex; align-items: center; 
+                                    justify-content: center; font-size: 10px; 
+                                    font-weight: bold; color: #3b82f6;
+                                    box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                            ${index + 1}
+                        </div>
+                    `,
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                })
+            }).addTo(map);
+
+            marker.bindPopup(`<b>Stop ${index + 1}</b>`);
+            busStopMarkers.push(marker);
+        });
+
+        console.log(`✓ Added ${busStopMarkers.length} bus stop markers`);
+    }
 {% if bus.route %}
 const routeCoords = {{ bus.route.get_route_coordinates|safe }};
 if (routeCoords && routeCoords.length > 0) {
@@ -796,221 +1026,155 @@ if (routeCoords && routeCoords.length > 0) {
         map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
     }
     
-// Draw route line on map with REAL ROADS AND HIGHLIGHTED SEGMENT
-{% if bus.route %}
-const routeCoords = {{ bus.route.get_route_coordinates|safe }};
-
-// Get pickup and destination from the URL/context if available
-const urlParams = new URLSearchParams(window.location.search);
-const pickupStopName = urlParams.get('pickup') || '{{ default_pickup }}';
-const destinationStopName = urlParams.get('destination') || '';
-
-if (routeCoords && routeCoords.length > 0) {
+// ===== ADD BUS STOPS WITH REALISTIC BUS STOP ICONS (NO HOVER ANIMATION) =====
+function addBusStopMarkers(coordinates) {
+    // Get stop names from your route (if available in context)
+    const stopNames = [
+        {% for stop in bus.route.get_stops_list %}
+            "{{ stop.name }}"{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    ];
     
-    // Function to get route from OSRM
-    async function drawRealRoute(coordinates) {
-        if (coordinates.length < 2) {
-            routeLine = L.polyline(coordinates, {
-                color: '#9ca3af',
-                weight: 5,
-                opacity: 0.7,
-                smoothFactor: 1
-            }).addTo(map);
-            return;
+    coordinates.forEach((coord, index) => {
+        const isFirst = index === 0;
+        const isLast = index === coordinates.length - 1;
+        const stopName = stopNames[index] || `Stop ${index + 1}`;
+        
+        let stopIcon, popupContent, iconSize;
+        
+        if (isFirst) {
+            // First stop (Pickup Point - Green Flag with Pole)
+            iconSize = 40;
+            stopIcon = L.divIcon({
+                html: `
+                    <div class="bus-stop-marker pickup-marker" style="
+                        width: ${iconSize}px;
+                        height: ${iconSize}px;
+                        position: relative;
+                    ">
+                        <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" width="${iconSize}" height="${iconSize}">
+                            <!-- Pole Shadow -->
+                            <ellipse cx="20" cy="38" rx="4" ry="1.5" fill="rgba(0,0,0,0.2)"/>
+                            
+                            <!-- Pole -->
+                            <rect x="18" y="8" width="4" height="30" fill="#4b5563" rx="1"/>
+                            
+                            <!-- Flag -->
+                            <path d="M 22 8 L 22 18 L 35 14 L 22 10 Z" fill="#10b981" stroke="#059669" stroke-width="1.5"/>
+                            
+                            <!-- Pin Icon on Flag -->
+                            <circle cx="26" cy="12" r="2.5" fill="white"/>
+                            <circle cx="26" cy="12" r="1.5" fill="#059669"/>
+                            
+                            <!-- Pole Top -->
+                            <circle cx="20" cy="8" r="2.5" fill="#374151"/>
+                        </svg>
+                    </div>
+                `,
+                className: 'custom-bus-stop-icon',
+                iconSize: [iconSize, iconSize],
+                iconAnchor: [iconSize/2, iconSize - 2]
+            });
+            popupContent = `<div style="text-align: center;"><b style="color: #10b981; font-size: 16px;">📍 ${stopName}</b><br><small style="color: #059669; font-weight: 600;">Pickup Point</small></div>`;
+            
+        } else if (isLast) {
+            // Last stop (Destination - Red Target with Checkered Flag)
+            iconSize = 40;
+            stopIcon = L.divIcon({
+                html: `
+                    <div class="bus-stop-marker destination-marker" style="
+                        width: ${iconSize}px;
+                        height: ${iconSize}px;
+                        position: relative;
+                    ">
+                        <svg viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" width="${iconSize}" height="${iconSize}">
+                            <!-- Shadow -->
+                            <ellipse cx="20" cy="38" rx="4" ry="1.5" fill="rgba(0,0,0,0.2)"/>
+                            
+                            <!-- Pole -->
+                            <rect x="18" y="8" width="4" height="30" fill="#4b5563" rx="1"/>
+                            
+                            <!-- Checkered Flag -->
+                            <rect x="22" y="8" width="3" height="3" fill="#ef4444"/>
+                            <rect x="25" y="8" width="3" height="3" fill="white"/>
+                            <rect x="28" y="8" width="3" height="3" fill="#ef4444"/>
+                            <rect x="31" y="8" width="3" height="3" fill="white"/>
+                            
+                            <rect x="22" y="11" width="3" height="3" fill="white"/>
+                            <rect x="25" y="11" width="3" height="3" fill="#ef4444"/>
+                            <rect x="28" y="11" width="3" height="3" fill="white"/>
+                            <rect x="31" y="11" width="3" height="3" fill="#ef4444"/>
+                            
+                            <rect x="22" y="14" width="3" height="3" fill="#ef4444"/>
+                            <rect x="25" y="14" width="3" height="3" fill="white"/>
+                            <rect x="28" y="14" width="3" height="3" fill="#ef4444"/>
+                            <rect x="31" y="14" width="3" height="3" fill="white"/>
+                            
+                            <!-- Target circles -->
+                            <circle cx="20" cy="20" r="8" fill="none" stroke="#ef4444" stroke-width="1.5"/>
+                            <circle cx="20" cy="20" r="5" fill="none" stroke="#dc2626" stroke-width="1.5"/>
+                            <circle cx="20" cy="20" r="2" fill="#dc2626"/>
+                            
+                            <!-- Pole Top -->
+                            <circle cx="20" cy="8" r="2.5" fill="#374151"/>
+                        </svg>
+                    </div>
+                `,
+                className: 'custom-bus-stop-icon',
+                iconSize: [iconSize, iconSize],
+                iconAnchor: [iconSize/2, iconSize - 2]
+            });
+            popupContent = `<div style="text-align: center;"><b style="color: #ef4444; font-size: 16px;">🎯 ${stopName}</b><br><small style="color: #dc2626; font-weight: 600;">Destination</small></div>`;
+            
+        } else {
+            // Middle stops (Realistic Bus Stop Sign)
+            iconSize = 36;
+            stopIcon = L.divIcon({
+                html: `
+                    <div class="bus-stop-marker regular-marker" style="
+                        width: ${iconSize}px;
+                        height: ${iconSize}px;
+                        position: relative;
+                    ">
+                        <svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg" width="${iconSize}" height="${iconSize}">
+                            <!-- Shadow -->
+                            <ellipse cx="18" cy="34" rx="3" ry="1" fill="rgba(0,0,0,0.2)"/>
+                            
+                            <!-- Pole -->
+                            <rect x="16.5" y="12" width="3" height="22" fill="#4b5563" rx="1"/>
+                            
+                            <!-- Sign Board (Rectangle with rounded corners) -->
+                            <rect x="8" y="6" width="20" height="12" rx="2" fill="#3b82f6" stroke="#2563eb" stroke-width="1.5"/>
+                            
+                            <!-- Bus icon on sign -->
+                            <rect x="11" y="9" width="8" height="5" rx="1" fill="white"/>
+                            <circle cx="13" cy="14.5" r="1" fill="#3b82f6"/>
+                            <circle cx="17" cy="14.5" r="1" fill="#3b82f6"/>
+                            <rect x="19.5" y="10" width="5" height="3" rx="0.5" fill="white"/>
+                            
+                            <!-- "BUS" text -->
+                            <text x="18" y="11.5" font-family="Arial" font-size="3" font-weight="bold" fill="#2563eb" text-anchor="middle">BUS</text>
+                        </svg>
+                    </div>
+                `,
+                className: 'custom-bus-stop-icon',
+                iconSize: [iconSize, iconSize],
+                iconAnchor: [iconSize/2, iconSize - 2]
+            });
+            popupContent = `<div style="text-align: center;"><b style="color: #3b82f6; font-size: 15px;">🚏 ${stopName}</b><br><small style="color: #2563eb;">Stop #${index}</small></div>`;
         }
         
-        try {
-            const coords = coordinates.map(c => `${c[1]},${c[0]}`).join(';');
-            const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
-            
-            console.log('🗺️ Fetching real route from OSRM...');
-            
-            const response = await fetch(osrmUrl);
-            const data = await response.json();
-            
-            if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
-                const route = data.routes[0];
-                const routeCoordinates = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
-                
-                console.log('✅ Real route loaded:', routeCoordinates.length, 'points');
-                
-                // ========================================
-                // STEP 1: Draw the FULL ROUTE in GRAY
-                // ========================================
-                routeLine = L.polyline(routeCoordinates, {
-                    color: '#9ca3af',
-                    weight: 6,
-                    opacity: 0.6,
-                    lineJoin: 'round',
-                    lineCap: 'round',
-                    smoothFactor: 1
-                }).addTo(map);
-                
-                // ========================================
-                // STEP 2: Find pickup and destination indices
-                // ========================================
-                const stopNames = [
-                    {% for stop in bus.route.get_stops_list %}
-                        "{{ stop.name }}"{% if not forloop.last %},{% endif %}
-                    {% endfor %}
-                ];
-                
-                let pickupIndex = -1;
-                let destinationIndex = -1;
-                
-                // Find indices by name
-                if (pickupStopName) {
-                    pickupIndex = stopNames.findIndex(name => 
-                        name.toLowerCase().trim() === pickupStopName.toLowerCase().trim()
-                    );
-                }
-                
-                if (destinationStopName) {
-                    destinationIndex = stopNames.findIndex(name => 
-                        name.toLowerCase().trim() === destinationStopName.toLowerCase().trim()
-                    );
-                }
-                
-                console.log('Pickup:', pickupStopName, 'Index:', pickupIndex);
-                console.log('Destination:', destinationStopName, 'Index:', destinationIndex);
-                
-                // ========================================
-                // STEP 3: Highlight PICKUP to DESTINATION in PURPLE
-                // ========================================
-                if (pickupIndex >= 0 && destinationIndex >= 0 && pickupIndex < destinationIndex) {
-                    // Get the coordinates for the highlighted segment
-                    const highlightCoords = coordinates.slice(pickupIndex, destinationIndex + 1);
-                    
-                    console.log('Highlighting segment from index', pickupIndex, 'to', destinationIndex);
-                    console.log('Segment coordinates:', highlightCoords);
-                    
-                    // Request OSRM route for just the highlighted segment
-                    const highlightCoordsStr = highlightCoords.map(c => `${c[1]},${c[0]}`).join(';');
-                    const osrmHighlightUrl = `https://router.project-osrm.org/route/v1/driving/${highlightCoordsStr}?overview=full&geometries=geojson`;
-                    
-                    const highlightResponse = await fetch(osrmHighlightUrl);
-                    const highlightData = await highlightResponse.json();
-                    
-                    if (highlightData.code === 'Ok' && highlightData.routes && highlightData.routes.length > 0) {
-                        const highlightRoute = highlightData.routes[0];
-                        const highlightRouteCoordinates = highlightRoute.geometry.coordinates.map(coord => [coord[1], coord[0]]);
-                        
-                        // Draw PURPLE highlighted segment
-                        const highlightedLine = L.polyline(highlightRouteCoordinates, {
-                            color: '#9333ea',
-                            weight: 8,
-                            opacity: 0.9,
-                            lineJoin: 'round',
-                            lineCap: 'round',
-                            smoothFactor: 1
-                        }).addTo(map);
-                        
-                        // Add animated dashed overlay on purple segment
-                        const dashedHighlight = L.polyline(highlightRouteCoordinates, {
-                            color: '#c084fc',
-                            weight: 4,
-                            opacity: 0.7,
-                            dashArray: '10, 20',
-                            lineJoin: 'round',
-                            lineCap: 'round'
-                        }).addTo(map);
-                        
-                        // Animate the dashes on purple segment
-                        let offset = 0;
-                        setInterval(() => {
-                            offset = (offset + 1) % 30;
-                            dashedHighlight.setStyle({ dashOffset: -offset });
-                        }, 50);
-                        
-                        console.log('✅ Purple segment highlighted');
-                    }
-                } else {
-                    console.log('⚠️ Cannot highlight segment - invalid pickup/destination indices');
-                }
-                
-                // ===== ADD BUS STOPS AS MARKERS =====
-                addBusStopMarkers(coordinates);
-                
-                // Fit map to route
-                map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
-                
-            } else {
-                console.warn('⚠️ OSRM routing failed, using simple line');
-                drawSimpleRoute(coordinates);
-                addBusStopMarkers(coordinates);
-            }
-        } catch (error) {
-            console.error('❌ Error fetching route:', error);
-            drawSimpleRoute(coordinates);
-            addBusStopMarkers(coordinates);
-        }
-    }
-    
-    // Fallback simple route
-    function drawSimpleRoute(coordinates) {
-        // Full route in gray
-        routeLine = L.polyline(coordinates, {
-            color: '#9ca3af',
-            weight: 5,
-            opacity: 0.6,
-            smoothFactor: 1,
-            lineJoin: 'round',
-            lineCap: 'round'
+        // Add marker WITHOUT any hover animation
+        const marker = L.marker(coord, { 
+            icon: stopIcon,
+            title: stopName
         }).addTo(map);
         
-        // Highlight segment if pickup/destination available
-        const stopNames = [
-            {% for stop in bus.route.get_stops_list %}
-                "{{ stop.name }}"{% if not forloop.last %},{% endif %}
-            {% endfor %}
-        ];
+        marker.bindPopup(popupContent);
         
-        let pickupIndex = -1;
-        let destinationIndex = -1;
-        
-        if (pickupStopName) {
-            pickupIndex = stopNames.findIndex(name => 
-                name.toLowerCase().trim() === pickupStopName.toLowerCase().trim()
-            );
-        }
-        
-        if (destinationStopName) {
-            destinationIndex = stopNames.findIndex(name => 
-                name.toLowerCase().trim() === destinationStopName.toLowerCase().trim()
-            );
-        }
-        
-        if (pickupIndex >= 0 && destinationIndex >= 0 && pickupIndex < destinationIndex) {
-            const highlightCoords = coordinates.slice(pickupIndex, destinationIndex + 1);
-            
-            // Purple highlighted segment
-            L.polyline(highlightCoords, {
-                color: '#9333ea',
-                weight: 8,
-                opacity: 0.9,
-                lineJoin: 'round',
-                lineCap: 'round'
-            }).addTo(map);
-            
-            // Animated dashes
-            const dashedHighlight = L.polyline(highlightCoords, {
-                color: '#c084fc',
-                weight: 4,
-                opacity: 0.7,
-                dashArray: '10, 20',
-                lineJoin: 'round',
-                lineCap: 'round'
-            }).addTo(map);
-            
-            let offset = 0;
-            setInterval(() => {
-                offset = (offset + 1) % 30;
-                dashedHighlight.setStyle({ dashOffset: -offset });
-            }, 50);
-        }
-        
-        map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
-    }
+        // NO HOVER EFFECTS - markers stay completely still
+    });
+}
     
     // Call the function to draw real route
     drawRealRoute(routeCoords);
@@ -1081,6 +1245,34 @@ if (routeCoords && routeCoords.length > 0) {
                 updateStatus('✅ Live tracking active - Updated just now', 'success');
             }
         }
+        // Example: When you fetch booking data from backend
+async function loadBookingData(bookingId) {
+    const response = await fetch(`/api/bookings/${bookingId}/`);
+    const booking = await response.json();
+    
+    // Extract route coordinates from booking
+    const driverRoute = booking.route.coordinates;  // [[lat, lon], [lat, lon], ...]
+    
+    // Extract user pickup and destination
+    const userPickup = {
+        lat: booking.pickup_latitude,
+        lon: booking.pickup_longitude
+    };
+    
+    const userDestination = {
+        lat: booking.destination_latitude,
+        lon: booking.destination_longitude
+    };
+    
+    // Draw the route with highlighting
+    drawRouteWithOSRM(driverRoute, userPickup, userDestination);
+}
+
+// Call when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    const bookingId = "{{ booking.id }}";  // From Django template
+    loadBookingData(bookingId);
+});
 
         // Handle seat updates
         if (data.type === 'seat_update') {

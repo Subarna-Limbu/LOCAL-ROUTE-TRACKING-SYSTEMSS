@@ -114,38 +114,43 @@ class BusRoute(models.Model):
         stops = self.get_stops_list()
         return [[stop.latitude, stop.longitude] for stop in stops]
     
-    def get_stop_graph(self):
-        """Build graph for Dijkstra: {stop_id: [(neighbor_id, distance), ...]}"""
-        graph = {}
-        route_stops = self.routestop_set.order_by('order')
-        stops_list = list(route_stops)
+def get_stop_graph(self):
+    """Build graph for Dijkstra: {stop_id: [(neighbor_id, distance), ...]}"""
+    graph = {}
+    route_stops = self.routestop_set.order_by('order')
+    stops_list = list(route_stops)
+    
+    for i, rs in enumerate(stops_list):
+        graph[rs.stop.id] = []
         
-        for i, rs in enumerate(stops_list):
-            graph[rs.stop.id] = []
+        # Connect to next stop
+        if i < len(stops_list) - 1:
+            next_rs = stops_list[i + 1]
             
-            # Connect to next stop
-            if i < len(stops_list) - 1:
-                next_rs = stops_list[i + 1]
-                distance = rs.distance_to_next_m or self._calculate_distance(
+            # Use stored distance or calculate
+            distance = rs.distance_to_next_m
+            if distance is None or distance == 0:
+                distance = self._calculate_distance(
                     rs.stop.latitude, rs.stop.longitude,
                     next_rs.stop.latitude, next_rs.stop.longitude
                 )
-                graph[rs.stop.id].append((next_rs.stop.id, distance))
-        
-        return graph
+            
+            graph[rs.stop.id].append((next_rs.stop.id, distance))
     
-    @staticmethod
-    def _calculate_distance(lat1, lon1, lat2, lon2):
-        """Calculate distance between two points using Haversine formula"""
-        import math
-        R = 6371000  # Earth radius in meters
-        phi1 = math.radians(lat1)
-        phi2 = math.radians(lat2)
-        dphi = math.radians(lat2 - lat1)
-        dlambda = math.radians(lon2 - lon1)
-        a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        return R * c
+    return graph
+
+@staticmethod
+def _calculate_distance(lat1, lon1, lat2, lon2):
+    """Calculate distance between two points using Haversine formula (returns meters)"""
+    import math
+    R = 6371000  # Earth radius in meters
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
 
 
 

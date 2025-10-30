@@ -351,36 +351,38 @@
         <div class="results-container">
             <h3 class="results-title">🚌 Available Buses (Ranked by ETA)</h3>
             <ul class="bus-list">
-                {% for info in buses_info %}
-                    <li class="bus-item">
-                        <div class="flex items-start gap-4">
-                            <!-- RANK BADGE -->
-                            <span class="bus-rank rank-{{ forloop.counter }}">
-                                {{ forloop.counter }}
-                            </span>
-                            
-                            <div class="flex-1">
-                                <div class="bus-route">{{ info.route.name }}</div>
-                                <div class="bus-details">
-                                    <span><strong>Bus:</strong> {{ info.bus.number_plate }}</span>
-                                    <span><strong>ETA to pickup:</strong> 
-                                        {% if info.eta %}
-                                            <span class="text-green-600 font-bold">{{ info.eta }} min</span>
-                                        {% else %}
-                                            <span class="text-gray-500">Calculating...</span>
-                                        {% endif %}
-                                    </span>
-                                    <span><strong>Available Seats:</strong> {{ info.available_seats }} / {{ info.bus.total_seats }}</span>
-                                </div>
-                            </div>
-                            
-                            <a href="{% url 'track_bus' info.bus.id %}" class="track-link">
-                               Track Live
-                                 </a>
-                        </div>
-                    </li>
-                {% endfor %}
-            </ul>
+    {% for info in buses_info %}
+        <li class="bus-item">
+            <div class="flex items-start gap-4">
+                <div class="flex-1">
+                    <div class="bus-route">{{ info.route.name }}</div>
+                    <div class="bus-details">
+                        <span><strong>Bus:</strong> {{ info.bus.number_plate }}</span>
+                        <span><strong>ETA to pickup:</strong> 
+                            {% if info.eta %}
+                                <span class="text-green-600 font-bold">{{ info.eta }} min</span>
+                                {% if info.nearest_stop %}
+                                    <span class="text-xs text-gray-500">(currently near {{ info.nearest_stop }})</span>
+                                {% endif %}
+                            {% elif info.status == 'passed' %}
+                                <span class="text-red-500">Already passed your stop</span>
+                            {% elif info.status == 'no_route' %}
+                                <span class="text-gray-500">Cannot reach via this route</span>
+                            {% else %}
+                                <span class="text-gray-500">Calculating...</span>
+                            {% endif %}
+                        </span>
+                        <span><strong>Available Seats:</strong> {{ info.available_seats }} / {{ info.bus.total_seats }}</span>
+                    </div>
+                </div>
+                
+                <a href="#" onclick="startTracking('{{ info.bus.id }}')" class="track-link">
+                    Track Live
+                </a>
+            </div>
+        </li>
+    {% endfor %}
+</ul>
         </div>
     </div>
 </section>

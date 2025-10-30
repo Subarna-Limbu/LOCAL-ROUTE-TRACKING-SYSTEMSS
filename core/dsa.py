@@ -1,4 +1,7 @@
 import heapq
+import logging
+
+logger = logging.getLogger(__name__)
 
 def dijkstra(graph, start, end):
     """
@@ -13,6 +16,7 @@ def dijkstra(graph, start, end):
         tuple: (shortest_distance, path_list)
     """
     if start not in graph or end not in graph:
+        logger.warning(f"Dijkstra: start={start} or end={end} not in graph")
         return float('inf'), []
     
     if start == end:
@@ -39,6 +43,7 @@ def dijkstra(graph, start, end):
         
         # Found destination
         if current == end:
+            logger.info(f"Dijkstra: Found path from {start} to {end} with distance {current_dist}m")
             break
         
         # Check neighbors
@@ -60,6 +65,7 @@ def dijkstra(graph, start, end):
     
     # Verify path is valid
     if path[0] != start:
+        logger.warning(f"Dijkstra: Invalid path from {start} to {end}")
         return float('inf'), []
     
     return distances[end], path
@@ -104,4 +110,5 @@ def find_best_route(all_routes, pickup_stop_id, dest_stop_id):
             best_route = route
             best_path = path
     
+    logger.info(f"Best route: {best_route.name if best_route else 'None'} with distance {best_distance}m")
     return best_route, best_distance, best_path

@@ -309,6 +309,8 @@ logger = logging.getLogger(__name__)
 
 
 def homepage(request):
+    from .dsa import dijkstra, find_best_route
+    
     # Collect stops from all bus routes
     stops = set()
     routes = BusRoute.objects.filter(is_active=True)
@@ -317,12 +319,12 @@ def homepage(request):
     stops = sorted(list(stops), key=lambda stop: stop.name)
 
     buses_info = []
-    # Accept either a Stop ID or a stop name for pickup/destination.
     raw_pickup = request.GET.get('pickup', '').strip() if 'pickup' in request.GET else ''
     raw_destination = request.GET.get('destination', '').strip() if 'destination' in request.GET else ''
     pickup_id = None
     destination_id = None
-    # Try to interpret as integer IDs first
+    
+    # Parse pickup/destination IDs
     try:
         if raw_pickup:
             pickup_id = int(raw_pickup)
@@ -333,7 +335,8 @@ def homepage(request):
             destination_id = int(raw_destination)
     except Exception:
         destination_id = None
-    # If not IDs, try to resolve by Stop name (case-insensitive)
+    
+    # Resolve by name if ID parsing failed
     if pickup_id is None and raw_pickup:
         s = Stop.objects.filter(name__iexact=raw_pickup).first()
         if s:
@@ -342,23 +345,43 @@ def homepage(request):
         s2 = Stop.objects.filter(name__iexact=raw_destination).first()
         if s2:
             destination_id = s2.id
-    # whether to show buses already passed (toggle via query param)
+    
     show_passed = request.GET.get('show_passed', '0') == '1'
-    matching_routes = []
-    if raw_pickup and raw_destination:
+    
+    # NEW: Find best route using Dijkstra
+    best_route = None
+    route_path = []
+    route_coordinates = []
+    
+    if pickup_id and destination_id:
+        # Use Dijkstra to find best route
+        best_route, best_distance, path_stop_ids = find_best_route(routes, pickup_id, destination_id)
+        
+        if best_route:
+            # Get coordinates for the path
+            route_path = path_stop_ids
+            all_stops = best_route.get_stops_list()
+            route_coordinates = [
+                [stop.latitude, stop.longitude] 
+                for stop in all_stops 
+                if stop.id in path_stop_ids
+            ]
+        
+        # Find all routes containing both stops
+        matching_routes = []
         for route in routes:
             stops_objs = route.get_stops_list()
             stops_ids = [s.id for s in stops_objs]
-            # if both pickup and destination IDs are known, match by id
-            if pickup_id and destination_id:
-                if pickup_id in stops_ids and destination_id in stops_ids:
+            
+            if pickup_id in stops_ids and destination_id in stops_ids:
+                pickup_idx = stops_ids.index(pickup_id)
+                dest_idx = stops_ids.index(destination_id)
+                
+                # Only include if pickup comes before destination
+                if pickup_idx < dest_idx:
                     matching_routes.append(route)
-            else:
-                # fallback to name-based match (legacy)
-                stops_list = [stop.name.strip().lower() for stop in stops_objs]
-                if raw_pickup.strip().lower() in stops_list and raw_destination.strip().lower() in stops_list:
-                    matching_routes.append(route)
-
+        
+        # Calculate ETA for each bus
         import math
         def haversine(lat1, lon1, lat2, lon2):
             R = 6371  # Earth radius in km
@@ -370,142 +393,66 @@ def homepage(request):
             c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
             return R * c
 
-        def get_stop_coords(stop_name):
-            # Try to resolve by Stop model first (case-insensitive)
-            try:
-                s = Stop.objects.filter(name__iexact=stop_name.strip()).first()
-                if s:
-                    return (s.latitude, s.longitude)
-            except Exception:
-                pass
-            # Fallbacks for a few common names
-            stop_coords = {
-                'kathmandu': (27.7172, 85.3240),
-                'lalitpur': (27.6644, 85.3188),
-                'bhaktapur': (27.6710, 85.4298),
-            }
-            return stop_coords.get(stop_name.lower())
-
-
         for route in matching_routes:
-            # prefer the first assigned bus for this route; if no bus assigned, skip this route
             bus = route.buses.first()
             if not bus:
-                # no active bus for this route right now
                 continue
-            available_seats = bus.seats.filter(is_available=True).count() if bus else 0
-            eta = None
-            status = 'unknown'
+            
+            available_seats = bus.seats.filter(is_available=True).count()
             bus_lat = getattr(bus, 'current_lat', None)
             bus_lng = getattr(bus, 'current_lng', None)
-            has_live_location = bus and bus_lat is not None and bus_lng is not None
-
-            # Compute a simple straight-line ETA as fallback
+            has_live_location = bus_lat is not None and bus_lng is not None
+            
+            # Calculate ETA
+            eta = None
             if has_live_location:
-                # prefer resolving via Stop id then name
-                pickup_coords = None
-                if pickup_id:
-                    sp = Stop.objects.filter(id=pickup_id).first()
-                    if sp:
-                        pickup_coords = (sp.latitude, sp.longitude)
-                if not pickup_coords:
-                    pickup_coords = get_stop_coords(raw_pickup)
-                if pickup_coords:
-                    distance_km = haversine(bus_lat, bus_lng, pickup_coords[0], pickup_coords[1])
-                    avg_speed_kmh = getattr(settings, 'AVG_SPEED_KMH', 25)
-                    eta_seconds = int((distance_km / avg_speed_kmh) * 3600)
-                    if eta_seconds < 1:
-                        eta_seconds = 1
-                    eta = int((eta_seconds + 30) / 60)
+                pickup_stop = Stop.objects.filter(id=pickup_id).first()
+                if pickup_stop:
+                    # Use route-aware distance
+                    graph = route.get_stop_graph()
+                    
+                    # Find nearest stop to bus
+                    stops = route.get_stops_list()
+                    nearest_idx = min(
+                        range(len(stops)), 
+                        key=lambda i: haversine(bus_lat, bus_lng, stops[i].latitude, stops[i].longitude)
+                    )
+                    nearest_stop_id = stops[nearest_idx].id
+                    
+                    # Distance from bus to nearest stop
+                    dist_to_nearest = haversine(bus_lat, bus_lng, stops[nearest_idx].latitude, stops[nearest_idx].longitude)
+                    
+                    # Distance from nearest stop to pickup using Dijkstra
+                    dist_along_route, _ = dijkstra(graph, nearest_stop_id, pickup_id)
+                    
+                    if dist_along_route != float('inf'):
+                        total_dist_km = dist_to_nearest + (dist_along_route / 1000)  # Convert meters to km
+                        avg_speed_kmh = 25
+                        eta_mins = int((total_dist_km / avg_speed_kmh) * 60)
+                        eta = max(1, eta_mins)
+            
+            # Determine status
+            status = 'unknown'
+            if eta:
+                if eta <= 2:
+                    status = 'caution'
                 else:
-                    import random
-                    eta = random.randint(2, 15)
-            else:
-                eta = None
-
-            # Determine passed using persisted counters or route-order when possible
-            passed_thresh = getattr(settings, 'ETA_PASSED_THRESHOLD_SECONDS', 30)
-            persisted_passed = getattr(bus, 'eta_passed_counter', 0) if bus else 0
-
-            route_order_passed = False
-            try:
-                if bus and bus.route and has_live_location:
-                    stops = bus.route.get_stops_list()
-                    # find pickup stop object in this route by name
-                    pickup_stop_obj = next((s for s in stops if s.name.strip().lower() == raw_pickup.strip().lower()), None)
-                    if not pickup_stop_obj:
-                        pickup_coords = get_stop_coords(raw_pickup)
-                        if pickup_coords:
-                            # match by coordinates within ~100m
-                            for s in stops:
-                                if abs(s.latitude - pickup_coords[0]) < 1e-3 and abs(s.longitude - pickup_coords[1]) < 1e-3:
-                                    pickup_stop_obj = s
-                                    break
-                    # if we have an id, prefer matching by id
-                    if pickup_id is not None:
-                        pickup_stop_obj = next((s for s in stops if s.id == pickup_id), pickup_stop_obj)
-                    if pickup_stop_obj:
-                        # Prefer computing nearest index from live location (more accurate). Fall back to persisted index when no live location.
-                        if has_live_location:
-                            nearest_idx = min(range(len(stops)), key=lambda i: haversine(bus_lat, bus_lng, stops[i].latitude, stops[i].longitude))
-                        else:
-                            nearest_idx = getattr(bus, 'nearest_stop_index', None)
-
-                        pickup_idx = next((i for i, s in enumerate(stops) if s.id == pickup_stop_obj.id), None)
-                        if pickup_idx is not None:
-                            # if bus index is after pickup index, it's passed
-                            if nearest_idx is not None and nearest_idx > pickup_idx:
-                                route_order_passed = True
-                            else:
-                                # compute forward distance along route
-                                def stop_distance(a, b):
-                                    return haversine(a.latitude, a.longitude, b.latitude, b.longitude)
-                                dist = haversine(bus_lat, bus_lng, stops[nearest_idx].latitude, stops[nearest_idx].longitude)
-                                i = nearest_idx
-                                while i != pickup_idx:
-                                    a = stops[i]
-                                    b = stops[(i + 1) % len(stops)]
-                                    dist += stop_distance(a, b)
-                                    i = (i + 1) % len(stops)
-                                avg_speed_kmh = getattr(settings, 'AVG_SPEED_KMH', 25)
-                                eta_seconds_route = int((dist / avg_speed_kmh) * 3600)
-                                if eta_seconds_route < 1:
-                                    eta_seconds_route = 1
-                                if eta_seconds_route <= passed_thresh:
-                                    route_order_passed = True
-            except Exception:
-                route_order_passed = False
-
-            # decide final status
-            if (persisted_passed and persisted_passed > 0) or route_order_passed:
-                status = 'passed'
-            else:
-                if eta is None:
-                    status = 'unknown'
-                else:
-                    caution_thresh = getattr(settings, 'ETA_CAUTION_THRESHOLD_SECONDS', 120)
-                    # if not passed then determine catchable/caution
-                    if eta * 60 <= passed_thresh:
-                        status = 'passed'
-                    elif eta * 60 <= caution_thresh:
-                        status = 'caution'
-                    else:
-                        status = 'catchable'
-
+                    status = 'catchable'
+            
             buses_info.append({
                 'route': route,
                 'bus': bus,
                 'eta': eta,
-                'eta_seconds': eta_seconds if has_live_location and pickup_coords else None,
                 'available_seats': available_seats,
                 'status': status,
             })
-
-        # reorder and filter passed buses unless user asked to show_passed
-        order_map = {'catchable': 0, 'caution': 1, 'unknown': 1, 'passed': 2}
-        buses_info.sort(key=lambda x: (order_map.get(x.get('status'), 1), x.get('eta') or 9999))
+        
+        # Sort by ETA (nearest first)
+        buses_info.sort(key=lambda x: (x.get('eta') or 9999))
+        
         if not show_passed:
             buses_info = [b for b in buses_info if b.get('status') != 'passed']
+    
     context = {
         'stops': stops,
         'buses_info': buses_info,
@@ -514,9 +461,10 @@ def homepage(request):
         'pickup_id': pickup_id,
         'destination_id': destination_id,
         'show_passed': show_passed,
+        'route_coordinates': route_coordinates,  # NEW: For drawing route on map
+        'best_route': best_route,  # NEW: For highlighting best route
     }
     return render(request, 'user/homepage.html', context)
-
 
 def driver_login(request):
     if request.method == 'POST':

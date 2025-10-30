@@ -27,7 +27,7 @@ cd smart_transport
 python -m venv venv
 # On Windows:
 venv\Scripts\activate
-# On Linux/Mac:
+
 source venv/bin/activate
 
 
@@ -44,7 +44,7 @@ python manage.py runserver
 daphne smart_transport.asgi:application
 
 ### 6. Access the Application
-Open your browser and go to [http://localhost:8000/](http://localhost:8000/)
+Open your browser and go to [http://localhost:8000/](http://localhost:8000/)   http://127.0.0.1:8000/admin/
 
 ## Live Tracking
 - Drivers start tracking from their dashboard.

@@ -590,23 +590,28 @@
     }).addTo(map);
     
     let marker = null;
+    let routeLine = null;
 
-    // Create custom bus icon
-    function createBusDivIcon() {
+    // Create custom animated bus icon
+    function createBusDivIcon(rotation = 0) {
         const svg = `
-            <svg viewBox="0 0 64 32" xmlns="http://www.w3.org/2000/svg" width="48" height="24">
+            <svg viewBox="0 0 64 32" xmlns="http://www.w3.org/2000/svg" width="48" height="24" style="transform: rotate(${rotation}deg); transition: transform 0.3s;">
                 <defs>
                     <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-                        <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#000" flood-opacity="0.4"/>
+                        <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.5"/>
                     </filter>
                 </defs>
                 <g filter="url(#shadow)">
-                    <rect x="2" y="6" rx="4" ry="4" width="60" height="18" fill="#1f2937" stroke="#111827" stroke-width="1" />
+                    <!-- Bus body -->
+                    <rect x="2" y="6" rx="4" ry="4" width="60" height="18" fill="#f59e0b" stroke="#d97706" stroke-width="2" />
+                    <!-- Windows -->
                     <rect x="8" y="9" width="18" height="10" fill="#ffffff" rx="1"/>
                     <rect x="26" y="9" width="18" height="10" fill="#ffffff" rx="1"/>
-                    <circle cx="14" cy="26" r="3" fill="#111827" />
-                    <circle cx="50" cy="26" r="3" fill="#111827" />
-                    <rect x="44" y="9" width="8" height="10" fill="#f59e0b" rx="1"/>
+                    <!-- Wheels -->
+                    <circle cx="14" cy="26" r="3" fill="#1f2937" />
+                    <circle cx="50" cy="26" r="3" fill="#1f2937" />
+                    <!-- Front lights -->
+                    <rect x="44" y="9" width="8" height="10" fill="#fbbf24" rx="1"/>
                 </g>
             </svg>`;
         return L.divIcon({
@@ -628,43 +633,64 @@
         return (toDeg(brng) + 360) % 360;
     }
 
-    // Animate marker smoothly (Pathao-like)
+    // Smooth animation for marker movement
     function animateMarkerTo(marker, newLatLng, durationMs) {
-        try {
-            const start = performance.now();
-            const from = marker.getLatLng();
-            const to = L.latLng(newLatLng[0], newLatLng[1]);
+        const start = performance.now();
+        const from = marker.getLatLng();
+        const to = L.latLng(newLatLng[0], newLatLng[1]);
+        const bearing = bearingBetween(from.lat, from.lng, to.lat, to.lng);
+        
+        function step(now) {
+            const elapsed = now - start;
+            const t = Math.min(1, elapsed / durationMs);
             
-            const step = (now) => {
-                const t = Math.min(1, (now - start) / durationMs);
-                const lat = from.lat + (to.lat - from.lat) * t;
-                const lng = from.lng + (to.lng - from.lng) * t;
-                marker.setLatLng([lat, lng]);
-                
-                // Rotate SVG to face direction
-                try {
-                    const svg = marker._icon && marker._icon.querySelector && marker._icon.querySelector('svg');
-                    if (svg) {
-                        const br = bearingBetween(lat, lng, to.lat, to.lng);
-                        svg.style.transform = 'rotate(' + br + 'deg)';
-                        svg.style.transformOrigin = 'center center';
-                    }
-                } catch(e) {}
-                
-                if (t < 1) requestAnimationFrame(step);
-            };
-            requestAnimationFrame(step);
-        } catch(e) {
-            marker.setLatLng(newLatLng);
+            // Easing function (smooth deceleration)
+            const eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+            
+            const lat = from.lat + (to.lat - from.lat) * eased;
+            const lng = from.lng + (to.lng - from.lng) * eased;
+            
+            marker.setLatLng([lat, lng]);
+            marker.setIcon(createBusDivIcon(bearing));
+            
+            if (t < 1) {
+                requestAnimationFrame(step);
+            }
         }
+        requestAnimationFrame(step);
     }
+
+    // Draw route line on map
+    {% if bus.route %}
+    const routeCoords = {{ bus.route.get_route_coordinates|safe }};
+    if (routeCoords && routeCoords.length > 0) {
+        routeLine = L.polyline(routeCoords, {
+            color: '#2563EB',
+            weight: 4,
+            opacity: 0.6,
+            dashArray: '10, 10',
+            smoothFactor: 1
+        }).addTo(map);
+        
+        // Animate dash
+        let dashOffset = 0;
+        setInterval(() => {
+            dashOffset = (dashOffset + 1) % 20;
+            if (routeLine) {
+                routeLine.setStyle({ dashOffset: dashOffset });
+            }
+        }, 100);
+        
+        map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+    }
+    {% endif %}
 
     // WebSocket connection for live location
     const socket = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws/location/' + busId + '/');
     
     socket.onopen = function() {
         console.log('Location WebSocket connected');
-        updateStatus('Connected to live tracking', 'success');
+        updateStatus('🟢 Connected to live tracking', 'success');
     };
 
     socket.onmessage = function(event) {
@@ -675,7 +701,7 @@
             if (!marker) {
                 marker = L.marker([data.lat, data.lng], {icon: createBusDivIcon()}).addTo(map);
                 map.setView([data.lat, data.lng], 15);
-                updateStatus('Bus location found! Tracking live...', 'success');
+                updateStatus('✅ Bus location found! Tracking live...', 'success');
             } else {
                 animateMarkerTo(marker, [data.lat, data.lng], 2000);
             }
@@ -700,12 +726,12 @@
 
     socket.onerror = function(error) {
         console.error('WebSocket error:', error);
-        updateStatus('Connection error. Retrying...', 'error');
+        updateStatus('❌ Connection error. Retrying...', 'error');
     };
 
     socket.onclose = function() {
         console.log('Location WebSocket closed');
-        updateStatus('Connection lost. Please refresh the page.', 'warning');
+        updateStatus('⚠️ Connection lost. Please refresh the page.', 'warning');
     };
 
     // Update status message
@@ -737,7 +763,7 @@
     // Auto-detect if no location received
     setTimeout(() => {
         if (!marker) {
-            updateStatus('No live location received. The driver may not have started tracking yet.', 'warning');
+            updateStatus('⏳ Waiting for driver to start tracking...', 'warning');
         }
     }, 10000);
 </script>

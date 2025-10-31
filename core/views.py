@@ -507,11 +507,7 @@ def homepage(request):
                             logger.error("❌ No valid route found")
                             continue
                     
-                    if route and route.name and 'express' in route.name.lower():
-                            # Express bus: reduce stops by 60% (only major stops)
-                            stops_between = int(stops_between * 0.4)
-                            logger.info(f"   🚄 EXPRESS ROUTE: Reduced stops to {stops_between}")
-                        
+
                         # Each stop adds delay (boarding/alighting time)
                     STOP_DELAY_SECONDS = 60  # 1 minute per stop
                     total_stop_delay_seconds = stops_between * STOP_DELAY_SECONDS

@@ -732,6 +732,7 @@ function createBusDivIcon(rotation = 0) {
 // ⭐ IMPROVED: Prevent animation interruption
 let currentAnimation = null;
 
+// ⭐ IMPROVED: Smooth animation with lower threshold
 function animateMarkerTo(marker, newLatLng, baseDurationMs = 1000) {
     // Cancel previous animation if still running
     if (currentAnimation) {
@@ -755,11 +756,11 @@ function animateMarkerTo(marker, newLatLng, baseDurationMs = 1000) {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     const distance = R * c;
     
-    // ⭐ If movement is tiny (< 2m), just jump instantly
-    if (distance < 2) {
+    // ⭐ REDUCED THRESHOLD: Animate even small movements (> 0.5m instead of 2m)
+    if (distance < 0.5) {
         marker.setLatLng([to.lat, to.lng]);
         marker.setIcon(createBusDivIcon());
-        console.log(`⚡ Instant jump: ${distance.toFixed(1)}m`);
+        console.log(`⚡ Instant jump (too small): ${distance.toFixed(1)}m`);
         return;
     }
     
@@ -769,18 +770,22 @@ function animateMarkerTo(marker, newLatLng, baseDurationMs = 1000) {
     lastBearing = bearing;
     bearingInitialized = true;
     
-    // ⭐ Fixed animation duration
-    const durationMs = 800; // Slightly less than 1 second for smoother updates
+    // ⭐ Dynamic duration based on distance (smoother for short distances)
+    const durationMs = Math.min(1000, Math.max(500, distance * 50)); // 500-1000ms
     
-    console.log(`🚗 Animating ${distance.toFixed(0)}m over ${durationMs}ms`);
+    console.log(`🚗 Animating ${distance.toFixed(1)}m over ${durationMs}ms`);
     
     function step(now) {
         const elapsed = now - start;
         const t = Math.min(1, elapsed / durationMs);
         
-        // Linear easing (no acceleration/deceleration)
-        const lat = from.lat + (to.lat - from.lat) * t;
-        const lng = from.lng + (to.lng - from.lng) * t;
+        // ⭐ Ease-in-out for smoother motion
+        const eased = t < 0.5 
+            ? 2 * t * t 
+            : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        
+        const lat = from.lat + (to.lat - from.lat) * eased;
+        const lng = from.lng + (to.lng - from.lng) * eased;
         
         marker.setLatLng([lat, lng]);
         marker.setIcon(createBusDivIcon());
@@ -793,6 +798,19 @@ function animateMarkerTo(marker, newLatLng, baseDurationMs = 1000) {
     }
     
     currentAnimation = requestAnimationFrame(step);
+}
+// Calculate bearing between two points
+function bearingBetween(lat1, lng1, lat2, lng2) {
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δλ = (lng2 - lng1) * Math.PI / 180;
+    
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) -
+              Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    
+    let bearing = Math.atan2(y, x) * 180 / Math.PI;
+    return (bearing + 360) % 360; // Normalize to 0-360
 }
 // ⭐ NEW: Motion trail effect (fading line behind bus)
 let trailLine = null;

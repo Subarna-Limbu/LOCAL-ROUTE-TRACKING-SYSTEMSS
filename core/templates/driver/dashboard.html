@@ -744,9 +744,101 @@ startBtn.addEventListener('click', function() {
         console.log('✅ Geolocation watch started');
     };
     
-    socket.onmessage = function(event) {
-        console.log('📨 Server message:', event.data);
+// ⭐ Send GPS updates every 1 second (instead of only on movement)
+let gpsUpdateInterval = null;
+let lastKnownPosition = null;
+
+socket.onopen = function() {
+    console.log('✅ WebSocket connected');
+    status.style.display = 'block';
+    status.innerHTML = '✅ Tracking started successfully!';
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    
+    lastSentLocation = null;
+    
+    const geoOptions = {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0
     };
+    
+    console.log('Starting geolocation watch...');
+    
+    geoWatchId = navigator.geolocation.watchPosition(
+        function(position) {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+            
+            // Store latest position
+            lastKnownPosition = { lat, lng, accuracy };
+            
+            console.log('📍 Location:', {
+                lat: lat.toFixed(6),
+                lng: lng.toFixed(6),
+                accuracy: accuracy.toFixed(0) + 'm'
+            });
+        },
+        function(error) {
+            console.error('❌ Geolocation error:', error);
+            status.style.backgroundColor = '#fee2e2';
+            status.style.color = '#991b1b';
+            
+            let errorMsg = '❌ GPS Error: ';
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    errorMsg += 'Permission denied. Please enable location access.';
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    errorMsg += 'Location unavailable. Check GPS is enabled.';
+                    break;
+                case error.TIMEOUT:
+                    errorMsg += 'Request timeout. Retrying...';
+                    break;
+                default:
+                    errorMsg += error.message;
+            }
+            status.innerHTML = errorMsg;
+        },
+        geoOptions
+    );
+    
+    // ⭐ SEND GPS UPDATES EVERY 1 SECOND
+    gpsUpdateInterval = setInterval(() => {
+        if (lastKnownPosition && socket.readyState === WebSocket.OPEN) {
+            const { lat, lng } = lastKnownPosition;
+            
+            // Check if location changed enough
+            let shouldSend = true;
+            if (lastSentLocation) {
+                const distance = calculateDistance(
+                    lastSentLocation.lat, lastSentLocation.lng,
+                    lat, lng
+                );
+                
+                // Send if moved more than 5 meters (reduced from 10)
+                if (distance < 5) {
+                    shouldSend = false;
+                }
+            }
+            
+            if (shouldSend) {
+                const data = {
+                    type: 'location',
+                    lat: lat,
+                    lng: lng
+                };
+                
+                socket.send(JSON.stringify(data));
+                lastSentLocation = { lat, lng };
+                console.log('📤 Location sent (1s interval)');
+            }
+        }
+    }, 1000); // ⭐ 1000ms = 1 second
+    
+    console.log('✅ GPS updates: every 1 second');
+};
     
     socket.onerror = function(error) {
         console.error('❌ WebSocket error:', error);
@@ -785,6 +877,12 @@ stopBtn.addEventListener('click', function() {
         geoWatchId = null;
         console.log('✅ Geolocation watch stopped');
     }
+        // ⭐ ADD THIS LINE - Stop the 1-second interval
+    if (gpsUpdateInterval) {
+        clearInterval(gpsUpdateInterval);
+        gpsUpdateInterval = null;
+        console.log('✅ GPS update interval stopped');
+    }
     
     status.style.backgroundColor = '#f3f4f6';
     status.style.color = '#374151';
@@ -793,6 +891,7 @@ stopBtn.addEventListener('click', function() {
     stopBtn.disabled = true;
     
     lastSentLocation = null;
+    lastKnownPosition = null; // ⭐ ADD THIS LINE
 });
 
 // Prevent accidental page close while tracking

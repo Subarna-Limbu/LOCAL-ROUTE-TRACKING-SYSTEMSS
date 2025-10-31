@@ -307,6 +307,9 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+# Use settings or default values
+STOP_DELAY_SECONDS = getattr(settings, 'STOP_DELAY_SECONDS', 60)
+avg_speed_kmh = getattr(settings, 'AVG_BUS_SPEED_KMH', 25)
 def homepage(request):
     from .dsa import dijkstra
     import math
@@ -393,29 +396,27 @@ def homepage(request):
         for route, pickup_idx, dest_idx, stops_objs in matching_routes:
             bus = route.buses.first()
             if not bus:
-                logger.warning(f"Route {route.name} has no buses!")
                 continue
             
             logger.info(f"\n--- Processing Bus {bus.number_plate} on Route {route.name} ---")
             
             available_seats = bus.seats.filter(is_available=True).count()
             
-            # Get bus location (current or fallback to first stop)
+            # Get bus location
             bus_lat = getattr(bus, 'current_lat', None)
             bus_lng = getattr(bus, 'current_lng', None)
             
             logger.info(f"Bus GPS: lat={bus_lat}, lng={bus_lng}")
             
-            # CRITICAL FIX: If no live location, use FIRST STOP as starting point
+            # If no live location, use first stop
             bus_start_stop_idx = 0
             if bus_lat is None or bus_lng is None:
                 if stops_objs:
                     bus_lat = stops_objs[0].latitude
                     bus_lng = stops_objs[0].longitude
                     bus_start_stop_idx = 0
-                    logger.warning(f"Bus {bus.id} has NO LIVE GPS! Using first stop: {stops_objs[0].name} ({bus_lat}, {bus_lng})")
+                    logger.warning(f"Bus {bus.id} has NO LIVE GPS! Using first stop")
                 else:
-                    logger.error(f"Bus {bus.id} has no GPS and route has no stops!")
                     buses_info.append({
                         'route': route,
                         'bus': bus,
@@ -423,6 +424,7 @@ def homepage(request):
                         'available_seats': available_seats,
                         'status': 'no_location',
                         'nearest_stop': None,
+                        'stops_between': None,
                     })
                     continue
             
@@ -430,17 +432,17 @@ def homepage(request):
             eta = None
             status = 'unknown'
             nearest_stop = None
+            stops_between = 0  # 🆕 Initialize
             
             try:
-                # Step 1: Build the route graph
+                # Build route graph
                 graph = route.get_stop_graph()
-                logger.info(f"Graph has {len(graph)} nodes")
                 
                 if not graph:
                     logger.error(f"Empty graph for route {route.name}")
                     raise Exception("Empty graph")
                 
-                # Step 2: Find nearest stop to bus's current location
+                # Find nearest stop to bus
                 nearest_stop_idx = min(
                     range(len(stops_objs)), 
                     key=lambda i: haversine(bus_lat, bus_lng, stops_objs[i].latitude, stops_objs[i].longitude)
@@ -451,21 +453,21 @@ def homepage(request):
                 dist_to_nearest = haversine(bus_lat, bus_lng, nearest_stop.latitude, nearest_stop.longitude)
                 logger.info(f"Nearest stop: {nearest_stop.name} (index {nearest_stop_idx}), distance: {dist_to_nearest:.2f} km")
                 
-                # Step 3: Check if bus already passed pickup stop
+                # Check if bus already passed pickup
                 if nearest_stop_idx > pickup_idx:
-                    logger.warning(f"Bus already PASSED pickup! (bus at index {nearest_stop_idx}, pickup at {pickup_idx})")
+                    logger.warning(f"Bus already PASSED pickup!")
                     status = 'passed'
                     eta = None
                 else:
-                    # Step 4: Use Dijkstra to find distance along route from nearest stop to pickup
+                    # Use Dijkstra to find distance along route
                     pickup_stop_id = stops_objs[pickup_idx].id
                     
                     logger.info(f"Running Dijkstra from {nearest_stop_id} to {pickup_stop_id}")
                     dist_along_route_meters, path = dijkstra(graph, nearest_stop_id, pickup_stop_id)
                     
-                    logger.info(f"Dijkstra result: distance={dist_along_route_meters}m, path={path}")
+                    logger.info(f"Dijkstra result: distance={dist_along_route_meters}m")
                     
-                    # Step 5: Calculate total distance and ETA
+                    # ⭐⭐⭐ YOUR UPDATED ETA CALCULATION STARTS HERE ⭐⭐⭐
                     if dist_along_route_meters != float('inf') and dist_along_route_meters >= 0:
                         # Convert bus-to-nearest distance to meters
                         dist_bus_to_nearest_m = dist_to_nearest * 1000
@@ -474,13 +476,33 @@ def homepage(request):
                         total_distance_m = dist_bus_to_nearest_m + dist_along_route_meters
                         total_distance_km = total_distance_m / 1000.0
                         
+                        # 🌟 NEW: Calculate stop delay
+                        # Count stops between bus's nearest stop and pickup stop
+                        stops_between = pickup_idx - nearest_stop_idx
+                        if stops_between < 0:
+                            stops_between = 0
+                        
+                        # Each stop adds delay (boarding/alighting time)
+                        STOP_DELAY_SECONDS = 60  # 1 minute per stop
+                        total_stop_delay_seconds = stops_between * STOP_DELAY_SECONDS
+                        total_stop_delay_minutes = total_stop_delay_seconds / 60.0
+                        
                         # Average speed in city traffic (km/h)
                         avg_speed_kmh = 25
-                        eta_hours = total_distance_km / avg_speed_kmh
-                        eta_mins = int(eta_hours * 60)
-                        eta = max(1, eta_mins)  # Minimum 1 minute
                         
-                        logger.info(f"✅ ETA CALCULATED: {eta} min (total: {total_distance_km:.2f} km)")
+                        # Calculate base travel time (without stops)
+                        travel_time_hours = total_distance_km / avg_speed_kmh
+                        travel_time_minutes = travel_time_hours * 60
+                        
+                        # 🌟 Add stop delay to travel time
+                        total_time_minutes = travel_time_minutes + total_stop_delay_minutes
+                        eta = max(1, int(total_time_minutes))
+                        
+                        logger.info(f"✅ ETA CALCULATED: {eta} min")
+                        logger.info(f"   - Travel distance: {total_distance_km:.2f} km")
+                        logger.info(f"   - Travel time: {travel_time_minutes:.1f} min")
+                        logger.info(f"   - Stops between: {stops_between}")
+                        logger.info(f"   - Stop delay: {total_stop_delay_minutes:.1f} min")
                         
                         # Determine status based on ETA
                         if eta <= 2:
@@ -490,13 +512,11 @@ def homepage(request):
                         else:
                             status = 'far'
                     else:
-                        # Can't reach pickup from current position
-                        logger.warning(f"Dijkstra returned infinite distance - no valid path!")
                         eta = None
                         status = 'no_route'
                         
             except Exception as e:
-                logger.exception(f"❌ ERROR calculating ETA for bus {bus.id}: {e}")
+                logger.exception(f"❌ ERROR calculating ETA: {e}")
                 eta = None
                 status = 'error'
             
@@ -507,9 +527,8 @@ def homepage(request):
                 'available_seats': available_seats,
                 'status': status,
                 'nearest_stop': nearest_stop.name if nearest_stop else None,
+                'stops_between': stops_between,  # 🆕 Add this
             })
-            
-            logger.info(f"Added bus: ETA={eta}, status={status}, nearest_stop={nearest_stop.name if nearest_stop else 'N/A'}")
         
         # Sort by ETA (nearest first, None values last)
         buses_info.sort(key=lambda x: (x.get('eta') is None, x.get('eta') or 9999))

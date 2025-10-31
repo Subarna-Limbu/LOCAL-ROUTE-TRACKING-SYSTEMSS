@@ -133,3 +133,7 @@ LOGGING = {
         },
     },
 }
+
+# ETA Configuration
+STOP_DELAY_SECONDS = 60  # Time bus spends at each stop (default: 1 minute)
+AVG_BUS_SPEED_KMH = 25   # Average bus speed (default: 25 km/h)

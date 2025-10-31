@@ -129,23 +129,23 @@ class BusRoute(models.Model):
         graph = {}
         route_stops = self.routestop_set.order_by('order')
         stops_list = list(route_stops)
-    
+
         for i, rs in enumerate(stops_list):
             graph[rs.stop.id] = []
         
         # Connect to next stop
-        if i < len(stops_list) - 1:
-            next_rs = stops_list[i + 1]
+            if i < len(stops_list) - 1:
+                next_rs = stops_list[i + 1]
             
             # Use stored distance or calculate
-            distance = rs.distance_to_next_m
-            if distance is None or distance == 0:
-                distance = self._calculate_distance(
-                    rs.stop.latitude, rs.stop.longitude,
-                    next_rs.stop.latitude, next_rs.stop.longitude
-                )
+                distance = rs.distance_to_next_m
+                if distance is None or distance == 0:
+                     distance = self._calculate_distance(
+                         rs.stop.latitude, rs.stop.longitude,
+                         next_rs.stop.latitude, next_rs.stop.longitude
+                    )
             
-            graph[rs.stop.id].append((next_rs.stop.id, distance))
+                graph[rs.stop.id].append((next_rs.stop.id, distance))
     
         return graph
 

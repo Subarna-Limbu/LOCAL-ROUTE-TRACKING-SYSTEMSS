@@ -1237,8 +1237,32 @@ def compute_eta(request):
 
         bus_lat = getattr(bus, 'current_lat', None)
         bus_lng = getattr(bus, 'current_lng', None)
+        
+        available_seats = bus.seats.filter(is_available=True).count()
+        route = getattr(bus, 'route', None)
+
+        if route:
+            stops = route.get_stops_list()
+            # find pickup stop object among route stops
+            pickup_stop_obj = None
+            for s in stops:
+                if abs(s.latitude - float(pickup_coords[0])) < 1e-6 and abs(s.longitude - float(pickup_coords[1])) < 1e-6:
+                    pickup_stop_obj = s
+                    break
+        
+
         if bus_lat is None or bus_lng is None:
-            return JsonResponse({'status': 'error', 'error': 'bus has no live location'})
+            logger.warning(f"❌ Bus {bus.id} ({bus.number_plate}) has NO LIVE GPS!")
+            buses_info.append({
+                'route': route,
+                'bus': bus,
+                'eta': None,
+                'available_seats': available_seats,
+                'status': 'no_location',  # Shows "Driver not tracking"
+                'nearest_stop': None,
+                'stops_between': None,
+            })
+            return JsonResponse({'status': 'error', 'error': 'bus has no location data'})
 
         # Resolve pickup to coordinates
         pickup_coords = None

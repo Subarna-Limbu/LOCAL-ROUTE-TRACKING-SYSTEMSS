@@ -437,6 +437,9 @@ def homepage(request):
             try:
                 # Build route graph
                 graph = route.get_stop_graph()
+                    # 🔍 DEBUG: Check if graph exists
+                logger.info(f"🔍 Graph keys: {list(graph.keys())[:5]}...")  # Show first 5 stops
+                logger.info(f"🔍 Graph has {len(graph)} stops")
                 
                 if not graph:
                     logger.error(f"Empty graph for route {route.name}")
@@ -449,6 +452,13 @@ def homepage(request):
                 )
                 nearest_stop = stops_objs[nearest_stop_idx]
                 nearest_stop_id = nearest_stop.id
+                nearest_stop = stops_objs[nearest_stop_idx]
+                nearest_stop_id = nearest_stop.id
+
+# 🔍 DEBUG: Log nearest stop details
+                logger.info(f"🔍 Nearest stop: {nearest_stop.name} (ID: {nearest_stop_id}, Index: {nearest_stop_idx})")
+                logger.info(f"🔍 Pickup stop: {stops_objs[pickup_idx].name} (ID: {stops_objs[pickup_idx].id}, Index: {pickup_idx})")
+                logger.info(f"🔍 Destination stop: {stops_objs[dest_idx].name} (ID: {stops_objs[dest_idx].id}, Index: {dest_idx})")
                 
                 dist_to_nearest = haversine(bus_lat, bus_lng, nearest_stop.latitude, nearest_stop.longitude)
                 logger.info(f"Nearest stop: {nearest_stop.name} (index {nearest_stop_idx}), distance: {dist_to_nearest:.2f} km")
@@ -481,7 +491,10 @@ def homepage(request):
                         stops_between = pickup_idx - nearest_stop_idx
                         if stops_between < 0:
                             stops_between = 0
-                        
+                        if route and route.name and 'express' in route.name.lower():
+    # Express bus: reduce stops by 60% (only major stops)
+                            stops_between = int(stops_between * 0.4)
+                            logger.info(f"   🚄 EXPRESS ROUTE: Reduced stops to {stops_between}")
                         # Each stop adds delay (boarding/alighting time)
                         STOP_DELAY_SECONDS = 60  # 1 minute per stop
                         total_stop_delay_seconds = stops_between * STOP_DELAY_SECONDS
@@ -516,7 +529,10 @@ def homepage(request):
                         status = 'no_route'
                         
             except Exception as e:
-                logger.exception(f"❌ ERROR calculating ETA: {e}")
+                logger.error(f"❌ ERROR calculating ETA for bus {bus.number_plate}")
+                logger.error(f"❌ Error type: {type(e).__name__}")
+                logger.error(f"❌ Error message: {str(e)}")
+                logger.exception(f"❌ Full traceback:")
                 eta = None
                 status = 'error'
             

@@ -21,7 +21,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
 
         user = self.scope.get("user")
         logger.info(
-        f'LocationConsumer connected: bus_id={self.bus_id}, user={getattr(user, "id", None)}'
+            f'LocationConsumer connected: bus_id={self.bus_id}, user={getattr(user, "id", None)}'
         )
 
         # ⭐ NEW: Send last known location immediately when user connects
@@ -45,15 +45,15 @@ class LocationConsumer(AsyncWebsocketConsumer):
             ) )
 
             # Also send tracking status
-            await self.send(
-            text_data=json.dumps(
+            await self.channel_layer.group_send(
+                self.group_name,
                 {
                     "type": "tracking_status",
                     "status": "connected",
-                    "message": "Showing last known location",
-                }
+                    "message": "Driver started tracking",
+                },
             )
-        )
+
         else:
             logger.warning(f"⚠️ No location data found for bus {self.bus_id}")
 
@@ -83,8 +83,6 @@ class LocationConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             logger.exception(f'Error retrieving last bus location: {e}')
             return None
-
-
 
     async def disconnect(self, close_code):
         # ⭐ CRITICAL FIX: Clear bus location when driver stops tracking
@@ -137,6 +135,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
                         "type": "location_update",
                         "lat": lat,
                         "lng": lng,
+                        "is_historical": False,
                     },
                 )
             else:
@@ -194,7 +193,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
             if not bus:
                 logger.error(f"Bus not found: id={bus_id}")
                 return False
-            MIN_MOVEMENT_METERS = 1
+            MIN_MOVEMENT_METERS = 0.5
             if bus.current_lat and bus.current_lng:
                 import math
 

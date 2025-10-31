@@ -659,7 +659,7 @@ function smoothBearing(newBearing, lastBearing) {
     
     // Smooth transition (average between old and new)
     if (bearingInitialized) {
-        return lastBearing * 0.7 + newBearing * 0.3; // 70% old, 30% new
+        return lastBearing * 0.5 + newBearing * 0.5; // 50% old, 50% new
     }
     
     return newBearing;
@@ -729,8 +729,16 @@ function createBusDivIcon(rotation = 0) {
 
    
 
-  // ⭐ IMPROVED: Adaptive animation speed based on distance
-function animateMarkerTo(marker, newLatLng, baseDurationMs = 2000) {
+// ⭐ IMPROVED: Prevent animation interruption
+let currentAnimation = null;
+
+function animateMarkerTo(marker, newLatLng, baseDurationMs = 1000) {
+    // Cancel previous animation if still running
+    if (currentAnimation) {
+        cancelAnimationFrame(currentAnimation);
+        currentAnimation = null;
+    }
+    
     const start = performance.now();
     const from = marker.getLatLng();
     const to = L.latLng(newLatLng[0], newLatLng[1]);
@@ -747,48 +755,44 @@ function animateMarkerTo(marker, newLatLng, baseDurationMs = 2000) {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     const distance = R * c;
     
-    // ⭐ Calculate bearing (direction)
-    let bearing = bearingBetween(from.lat, from.lng, to.lat, to.lng);
+    // ⭐ If movement is tiny (< 2m), just jump instantly
+    if (distance < 2) {
+        marker.setLatLng([to.lat, to.lng]);
+        marker.setIcon(createBusDivIcon());
+        console.log(`⚡ Instant jump: ${distance.toFixed(1)}m`);
+        return;
+    }
     
-    // ⭐ SMOOTH THE ROTATION (prevent drunk bus!)
+    // ⭐ Calculate bearing for rotation
+    let bearing = bearingBetween(from.lat, from.lng, to.lat, to.lng);
     bearing = smoothBearing(bearing, lastBearing);
     lastBearing = bearing;
     bearingInitialized = true;
     
-    // Adaptive duration
-    let durationMs;
-    if (distance < 50) {
-        durationMs = 1000;
-    } else if (distance < 200) {
-        durationMs = 1500;
-    } else if (distance < 500) {
-        durationMs = 2000;
-    } else {
-        durationMs = 3000;
-    }
+    // ⭐ Fixed animation duration
+    const durationMs = 800; // Slightly less than 1 second for smoother updates
     
-    console.log(`🚗 Moving bus ${distance.toFixed(0)}m, direction: ${bearing.toFixed(0)}°`);
+    console.log(`🚗 Animating ${distance.toFixed(0)}m over ${durationMs}ms`);
     
     function step(now) {
         const elapsed = now - start;
         const t = Math.min(1, elapsed / durationMs);
         
-        // Smooth easing
-        const eased = t < 0.5 
-            ? 2 * t * t 
-            : -1 + (4 - 2 * t) * t;
-        
-        const lat = from.lat + (to.lat - from.lat) * eased;
-        const lng = from.lng + (to.lng - from.lng) * eased;
+        // Linear easing (no acceleration/deceleration)
+        const lat = from.lat + (to.lat - from.lat) * t;
+        const lng = from.lng + (to.lng - from.lng) * t;
         
         marker.setLatLng([lat, lng]);
-        marker.setIcon(createBusDivIcon()); // ← Use smoothed bearing
+        marker.setIcon(createBusDivIcon());
         
         if (t < 1) {
-            requestAnimationFrame(step);
+            currentAnimation = requestAnimationFrame(step);
+        } else {
+            currentAnimation = null;
         }
     }
-    requestAnimationFrame(step);
+    
+    currentAnimation = requestAnimationFrame(step);
 }
 // ⭐ NEW: Motion trail effect (fading line behind bus)
 let trailLine = null;
@@ -1102,6 +1106,8 @@ function addBusStopMarkers(coordinates) {
         updateStatus('🟢 Connected - Waiting for driver to start tracking...', 'success');
         lastUpdateTime = Date.now();
         
+        window.updateCounter = 0;
+
         // Start checking for stale connections
         if (connectionCheckInterval) {
             clearInterval(connectionCheckInterval);
@@ -1129,6 +1135,19 @@ function addBusStopMarkers(coordinates) {
             if (data.status === 'connected') {
                 updateStatus('✅ Driver started tracking! Receiving live updates...', 'success');
                 lastUpdateTime = Date.now();
+                  // ⭐ ADD THIS: Restart connection check interval
+                if (connectionCheckInterval) {
+                    clearInterval(connectionCheckInterval);
+                }
+                connectionCheckInterval = setInterval(() => {
+                    const timeSinceLastUpdate = (Date.now() - lastUpdateTime) / 1000;
+                    if (timeSinceLastUpdate > 30 && marker) {
+                        updateStatus('⚠️ Connection may be weak - No updates for 30 seconds', 'warning');
+                    } else if (timeSinceLastUpdate > 60) {
+                         updateStatus('❌ Connection lost - Driver may have stopped tracking', 'error');
+                    }
+                }, 5000);
+        
             } else if (data.status === 'disconnected') {
                 updateStatus('⏹️ Driver stopped tracking. Last known location shown on map.', 'warning');
                 
@@ -1144,15 +1163,16 @@ function addBusStopMarkers(coordinates) {
         
 // Handle location updates
 if (data.type === 'location_update' && data.lat && data.lng) {
+    window.updateCounter++;
+    console.log(`📍 Update #${window.updateCounter}: lat=${data.lat}, lng=${data.lng}`);
     lastUpdateTime = Date.now();
     
     const isHistorical = data.is_historical || false;
     
     if (!marker) {
+        // ⭐ First location - create marker
         marker = L.marker([data.lat, data.lng], {icon: createBusDivIcon()}).addTo(map);
         map.setView([data.lat, data.lng], 15);
-        
-        // ⭐ Start trail
         addToTrail(data.lat, data.lng);
         
         if (isHistorical) {
@@ -1161,10 +1181,29 @@ if (data.type === 'location_update' && data.lat && data.lng) {
             updateStatus('✅ Bus location found! Tracking live...', 'success');
         }
     } else {
-        animateMarkerTo(marker, [data.lat, data.lng], 2000);
+        // ⭐ Subsequent updates - animate
+        const oldPos = marker.getLatLng();
+        const newPos = [data.lat, data.lng];
         
-        // ⭐ Add to trail
-        addToTrail(data.lat, data.lng);
+        // Calculate if this is a significant move
+        const R = 6371000;
+        const φ1 = oldPos.lat * Math.PI / 180;
+        const φ2 = newPos[0] * Math.PI / 180;
+        const Δφ = (newPos[0] - oldPos.lat) * Math.PI / 180;
+        const Δλ = (newPos[1] - oldPos.lng) * Math.PI / 180;
+        const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                  Math.cos(φ1) * Math.cos(φ2) *
+                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        const distanceMoved = R * c;
+        
+        console.log(`📍 New GPS: moved ${distanceMoved.toFixed(1)}m`);
+        
+        // Only animate if moved more than 1 meter
+        if (distanceMoved > 1) {
+            animateMarkerTo(marker, newPos);
+            addToTrail(data.lat, data.lng);
+        }
         
         if (!isHistorical) {
             updateStatus('✅ Live tracking active - Updated just now', 'success');

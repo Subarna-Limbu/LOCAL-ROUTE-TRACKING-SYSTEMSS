@@ -33,6 +33,10 @@ class LocationConsumer(AsyncWebsocketConsumer):
         )
 
     async def disconnect(self, close_code):
+        # ⭐ CRITICAL FIX: Clear bus location when driver stops tracking
+        # This prevents showing old coordinates as if driver is still tracking
+        await self._clear_bus_location(self.bus_id)
+        
         # CRITICAL: Notify all connected users that tracking stopped
         await self.channel_layer.group_send(
             self.group_name,
@@ -174,6 +178,43 @@ class LocationConsumer(AsyncWebsocketConsumer):
             
         except Exception as e:
             logger.exception(f'Error saving bus location: {e}')
+            return False
+
+    @database_sync_to_async
+    def _clear_bus_location(self, bus_id):
+        """⭐ NEW METHOD: Clear bus location when driver stops tracking"""
+        try:
+            bus = Bus.objects.filter(id=bus_id).first()
+            if not bus:
+                logger.warning(f'Bus not found for clearing: id={bus_id}')
+                return False
+            
+            # Clear bus coordinates
+            bus.current_lat = None
+            bus.current_lng = None
+            bus.nearest_stop_index = None
+            bus.eta_seconds = None
+            bus.eta_smoothed_seconds = None
+            bus.save(update_fields=[
+                'current_lat', 
+                'current_lng', 
+                'nearest_stop_index',
+                'eta_seconds',
+                'eta_smoothed_seconds'
+            ])
+            logger.info(f'✅ Cleared location for bus {bus.number_plate} (driver stopped tracking)')
+            
+            # Also clear driver coordinates
+            if bus.driver:
+                bus.driver.current_lat = None
+                bus.driver.current_lng = None
+                bus.driver.save(update_fields=['current_lat', 'current_lng'])
+                logger.info(f'✅ Cleared location for driver {bus.driver.user.username}')
+            
+            return True
+            
+        except Exception as e:
+            logger.exception(f'Error clearing bus location: {e}')
             return False
 
 

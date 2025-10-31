@@ -451,8 +451,13 @@ def homepage(request):
                 logger.info(f"🔍 Pickup stop: {stops_objs[pickup_idx].name} (ID: {stops_objs[pickup_idx].id}, Index: {pickup_idx})")
                 logger.info(f"🔍 Destination stop: {stops_objs[dest_idx].name} (ID: {stops_objs[dest_idx].id}, Index: {dest_idx})")
                 
-                dist_to_nearest = haversine(bus_lat, bus_lng, nearest_stop.latitude, nearest_stop.longitude)
-                logger.info(f"Nearest stop: {nearest_stop.name} (index {nearest_stop_idx}), distance: {dist_to_nearest:.2f} km")
+                from .routing_api import get_road_distance_with_fallback
+                dist_to_nearest, is_road = get_road_distance_with_fallback(
+                    bus_lat, bus_lng,
+                    nearest_stop.latitude, nearest_stop.longitude
+)
+                distance_type = "🛣️ ROAD" if is_road else "📏 ESTIMATED"
+                logger.info(f"Nearest stop: {nearest_stop.name} (index {nearest_stop_idx}), distance: {dist_to_nearest:.2f} km ({distance_type})")
                 
                 # Check if bus already passed pickup
                 if nearest_stop_idx > pickup_idx:
@@ -463,56 +468,78 @@ def homepage(request):
                     # Use Dijkstra to find distance along route
                     pickup_stop_id = stops_objs[pickup_idx].id
                     
-                    logger.info(f"Running Dijkstra from {nearest_stop_id} to {pickup_stop_id}")
-                    dist_along_route_meters, path = dijkstra(graph, nearest_stop_id, pickup_stop_id)
-                    
-                    logger.info(f"Dijkstra result: distance={dist_along_route_meters}m")
-                    
-                    if dist_along_route_meters != float('inf') and dist_along_route_meters >= 0:
-                        # Convert bus-to-nearest distance to meters
-                        dist_bus_to_nearest_m = dist_to_nearest * 1000
+                    if nearest_stop_id == pickup_stop_id:
+                        logger.info(f"🎯 Bus is AT pickup stop! Using direct distance")
                         
-                        # Total distance in meters
-                        total_distance_m = dist_bus_to_nearest_m + dist_along_route_meters
-                        total_distance_km = total_distance_m / 1000.0
+                        dist_bus_to_pickup_km, is_road = get_road_distance_with_fallback(
+                            bus_lat, bus_lng,
+                            stops_objs[pickup_idx].latitude, stops_objs[pickup_idx].longitude
+                        )
+                        total_distance_km = dist_bus_to_pickup_km
+                        stops_between = 0
+                        
+                        distance_type = "🛣️ ROAD" if is_road else "📏 ESTIMATED"
+                        logger.info(f"   Direct distance to pickup: {total_distance_km:.2f} km ({distance_type})")
+                    else:    
+                        logger.info(f"Running Dijkstra from {nearest_stop_id} to {pickup_stop_id}")
+                        dist_along_route_meters, path = dijkstra(graph, nearest_stop_id, pickup_stop_id)
+                        
+                        logger.info(f"Dijkstra result: distance={dist_along_route_meters}m")
+                        
+                        if dist_along_route_meters != float('inf') and dist_along_route_meters >= 0:
+                        # Convert bus-to-nearest distance to meters
+                           dist_bus_to_nearest_km = dist_to_nearest 
+                        
+                        # Total distance calculation
+                           dist_along_route_km = dist_along_route_meters / 1000.0
+                           total_distance_km = dist_bus_to_nearest_km + dist_along_route_km
                         
                         # Calculate stop delay
-                        stops_between = pickup_idx - nearest_stop_idx
-                        if stops_between < 0:
+                           stops_between = pickup_idx - nearest_stop_idx
+                           if stops_between < 0:
                             stops_between = 0
-                        if route and route.name and 'express' in route.name.lower():
+                            
+                            logger.info(f"   - Distance bus→nearest: {dist_bus_to_nearest_km:.2f} km")
+                            logger.info(f"   - Distance along route: {dist_along_route_km:.2f} km")
+                        else:
+                            eta =None
+                            status = 'no_route'
+                            logger.error("❌ No valid route found")
+                            continue
+                    
+                    if route and route.name and 'express' in route.name.lower():
                             # Express bus: reduce stops by 60% (only major stops)
                             stops_between = int(stops_between * 0.4)
                             logger.info(f"   🚄 EXPRESS ROUTE: Reduced stops to {stops_between}")
                         
                         # Each stop adds delay (boarding/alighting time)
-                        STOP_DELAY_SECONDS = 60  # 1 minute per stop
-                        total_stop_delay_seconds = stops_between * STOP_DELAY_SECONDS
-                        total_stop_delay_minutes = total_stop_delay_seconds / 60.0
+                    STOP_DELAY_SECONDS = 60  # 1 minute per stop
+                    total_stop_delay_seconds = stops_between * STOP_DELAY_SECONDS
+                    total_stop_delay_minutes = total_stop_delay_seconds / 60.0
                         
                         # Average speed in city traffic (km/h)
-                        avg_speed_kmh = 25
+                    avg_speed_kmh = 25
                         
                         # Calculate base travel time (without stops)
-                        travel_time_hours = total_distance_km / avg_speed_kmh
-                        travel_time_minutes = travel_time_hours * 60
+                    travel_time_hours = total_distance_km / avg_speed_kmh
+                    travel_time_minutes = travel_time_hours * 60
                         
                         # Add stop delay to travel time
-                        total_time_minutes = travel_time_minutes + total_stop_delay_minutes
-                        eta = max(1, int(total_time_minutes))
+                    total_time_minutes = travel_time_minutes + total_stop_delay_minutes
+                    eta = max(1, int(total_time_minutes))
                         
-                        logger.info(f"✅ ETA CALCULATED: {eta} min")
-                        logger.info(f"   - Travel distance: {total_distance_km:.2f} km")
-                        logger.info(f"   - Travel time: {travel_time_minutes:.1f} min")
-                        logger.info(f"   - Stops between: {stops_between}")
-                        logger.info(f"   - Stop delay: {total_stop_delay_minutes:.1f} min")
+                    logger.info(f"✅ ETA CALCULATED: {eta} min")
+                    logger.info(f"   - Travel distance: {total_distance_km:.2f} km")
+                    logger.info(f"   - Travel time: {travel_time_minutes:.1f} min")
+                    logger.info(f"   - Stops between: {stops_between}")
+                    logger.info(f"   - Stop delay: {total_stop_delay_minutes:.1f} min")
                         
                         # Determine status based on ETA
-                        if eta <= 2:
+                    if eta <= 2:
                             status = 'arriving_soon'
-                        elif eta <= 10:
+                    elif eta <= 10:
                             status = 'catchable'
-                        else:
+                    elif eta <= 30:
                             status = 'far'
                     else:
                         eta = None

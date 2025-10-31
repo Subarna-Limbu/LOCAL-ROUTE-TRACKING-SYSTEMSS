@@ -19,8 +19,15 @@ SECRET_KEY = 'your-secret-key'  # Replace with a unique key for your project
 
 DEBUG = True
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = [
+    "127.0.0.1",
+    "localhost",
+    "unflowering-nella-thermometrically.ngrok-free.dev",
+]
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://unflowering-nella-thermometrically.ngrok-free.dev",
+]
 INSTALLED_APPS = [
     'daphne',
     'django.contrib.admin',
@@ -97,9 +104,11 @@ CHANNEL_LAYERS = {
 }
 
 
-CSRF_TRUSTED_ORIGINS = [
-    "https://*.ngrok-free.app"
-]
+# CSRF_TRUSTED_ORIGINS = [
+#     "http://localhost:8000",
+#     "https://*.ngrok.io",
+#     "https://*.ngrok-free.app",
+# ]
 
 # Email Configuration (Gmail)
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'

@@ -24,7 +24,8 @@ git clone <repo-url>
 cd smart_transport
 
 ### 2. Create and Activate a Virtual Environment 
-python -m venv venv
+cd smart_transport
+
 # On Windows:
 venv\Scripts\activate
 

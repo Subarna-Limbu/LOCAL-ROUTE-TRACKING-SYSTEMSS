@@ -358,20 +358,24 @@
                     <div class="bus-route">{{ info.route.name }}</div>
                     <div class="bus-details">
                         <span><strong>Bus:</strong> {{ info.bus.number_plate }}</span>
-                        <span><strong>ETA to pickup:</strong> 
-                            {% if info.eta %}
-                                <span class="text-green-600 font-bold">{{ info.eta }} min</span>
-                                {% if info.nearest_stop %}
-                                    <span class="text-xs text-gray-500">(currently near {{ info.nearest_stop }})</span>
-                                {% endif %}
-                            {% elif info.status == 'passed' %}
-                                <span class="text-red-500">Already passed your stop</span>
-                            {% elif info.status == 'no_route' %}
-                                <span class="text-gray-500">Cannot reach via this route</span>
-                            {% else %}
-                                <span class="text-gray-500">Calculating...</span>
-                            {% endif %}
-                        </span>
+<span><strong>ETA to pickup:</strong> 
+    {% if info.eta %}
+        <span class="text-green-600 font-bold">{{ info.eta }} min</span>
+        {% if info.nearest_stop %}
+            <span class="text-xs text-gray-500">(currently near {{ info.nearest_stop }})</span>
+        {% endif %}
+    {% elif info.status == 'passed' %}
+        <span class="text-red-500">Already passed your stop</span>
+    {% elif info.status == 'no_route' %}
+        <span class="text-gray-500">Cannot reach via this route</span>
+    {% elif info.status == 'no_location' %}
+        <span class="text-amber-600">⚠️ Driver not tracking yet</span>
+    {% elif info.status == 'error' %}
+        <span class="text-red-500">❌ Calculation error</span>
+    {% else %}
+        <span class="text-gray-500">📍 Location unavailable</span>
+    {% endif %}
+</span>
                         <span><strong>Available Seats:</strong> {{ info.available_seats }} / {{ info.bus.total_seats }}</span>
                     </div>
                 </div>

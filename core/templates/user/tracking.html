@@ -719,7 +719,6 @@
     // Draw route line on map
 // Draw route line on map with REAL ROADS
 // Draw route line on map with REAL ROADS
-
 {% if bus.route %}
 const routeCoords = {{ bus.route.get_route_coordinates|safe }};
 if (routeCoords && routeCoords.length > 0) {
@@ -870,7 +869,7 @@ function addBusStopMarkers(coordinates) {
                 iconSize: [iconSize, iconSize],
                 iconAnchor: [iconSize/2, iconSize - 2]
             });
-            popupContent = `<div style="text-align: center;"><b style="color: #10b981; font-size: 16px;">📍 ${stopName}</b><br><small style="color: #059669; font-weight: 600;">Pickup Point</small></div>`;
+            popupContent = `<div style="text-align: center;"><b style="color: #10b981; font-size: 16px;">📍 ${stopName}</b><br><small style="color: #059669; font-weight: 600;">Start Point</small></div>`;
             
         } else if (isLast) {
             // Last stop (Destination - Red Target with Checkered Flag)

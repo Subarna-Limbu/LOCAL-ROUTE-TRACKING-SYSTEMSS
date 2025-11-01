@@ -212,7 +212,21 @@
         color: var(--dark);
         cursor: pointer;
     }
-     
+     .route-distance-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #9333ea 0%, #7e22ce 100%);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-top: 8px;
+    box-shadow: 0 2px 4px rgba(147, 51, 234, 0.3);
+}
+
+.route-distance-badge i {
+    margin-right: 4px;
+}
   
     /* Bus Rankings */
     .bus-rank {
@@ -349,15 +363,26 @@
         
         <!-- BUS LIST -->
         <div class="results-container">
-            <h3 class="results-title">🚌 Available Buses (Ranked by ETA)</h3>
+            <h3 class="results-title">🚌 Available Buses (Ranked by Shortest Route)</h3>
             <ul class="bus-list">
     {% for info in buses_info %}
         <li class="bus-item">
-            <div class="flex items-start gap-4">
+            <div class="flex items-start gap-4"><!-- ⭐ UPDATE: Add rank badge with tooltip -->
+        <div class="flex-shrink-0">
+            <span class="bus-rank rank-{{ forloop.counter }}" 
+                  title="Ranked by shortest route distance using Dijkstra's algorithm">
+                {{ forloop.counter }}
+            </span>
+            {% if info.pickup_to_dest_distance %}
+                <div class="text-xs text-center text-purple-600 font-bold mt-1">
+                    {{ info.pickup_to_dest_distance|floatformat:1 }}km
+                </div>
+            {% endif %}
+        </div>
                 <div class="flex-1">
-                    <div class="bus-route">{{ info.route.name }}</div>
-                    <div class="bus-details">
-                        <span><strong>Bus:</strong> {{ info.bus.number_plate }}</span>
+            <div class="bus-route">{{ info.route.name }}</div>
+            <div class="bus-details">
+                <span><strong>Bus:</strong> {{ info.bus.number_plate }}</span>
 <span><strong>ETA to pickup:</strong> 
     {% if info.eta %}
         <!-- Real GPS-based ETA -->
@@ -368,6 +393,17 @@
         <span class="text-xs text-blue-500 ml-2">
             <i class="fas fa-satellite-dish"></i> Live GPS
         </span>
+         <!-- ⭐ ADD THIS NEW SECTION - Show pickup to destination distance -->
+        {% if info.pickup_to_dest_distance %}
+            <br>
+            <span class="text-purple-600 font-semibold">
+                <i class="fas fa-route"></i> 
+                Route distance: {{ info.pickup_to_dest_distance|floatformat:2 }} km
+            </span>
+            <span class="text-xs text-gray-500">
+                (pickup to destination)
+            </span>
+        {% endif %}
         
     {% elif info.status == 'no_location' %}
         <!-- ⭐ NEW: Driver not tracking -->
@@ -377,6 +413,14 @@
         <span class="text-xs text-amber-500 block mt-1">
             ETA will show when driver starts tracking
         </span>
+                <!-- ⭐ SHOW DISTANCE EVEN WHEN NO GPS -->
+        {% if info.pickup_to_dest_distance %}
+            <br>
+            <span class="text-purple-600 font-semibold">
+                <i class="fas fa-route"></i> 
+                Route distance: {{ info.pickup_to_dest_distance|floatformat:2 }} km
+            </span>
+        {% endif %}
         
     {% elif info.status == 'passed' %}
         <span class="text-red-500">Already passed your stop</span>

@@ -132,7 +132,7 @@ def verify_driver_otp(request):
     except Exception as e:
         messages.error(request, f'Registration failed: {str(e)}')
         return redirect('driver_register')
-    
+
 
 def driver_forgot_password(request):
     """Driver forgot password - send OTP"""
@@ -286,7 +286,7 @@ def driver_set_new_password(request):
             return redirect('driver_forgot_password')
     
     return redirect('driver_forgot_password')
-    
+
 from django.views.decorators.csrf import csrf_exempt
 import json
 import logging
@@ -314,9 +314,9 @@ def homepage(request):
     from .dsa import dijkstra
     import math
     import logging
-    
+
     logger = logging.getLogger(__name__)
-    
+
     # Collect stops from all bus routes
     stops = set()
     routes = BusRoute.objects.filter(is_active=True)
@@ -329,7 +329,7 @@ def homepage(request):
     raw_destination = request.GET.get('destination', '').strip() if 'destination' in request.GET else ''
     pickup_id = None
     destination_id = None
-    
+
     # Parse pickup/destination IDs
     try:
         if raw_pickup:
@@ -341,7 +341,7 @@ def homepage(request):
             destination_id = int(raw_destination)
     except Exception:
         destination_id = None
-    
+
     # Resolve by name if ID parsing failed
     if pickup_id is None and raw_pickup:
         s = Stop.objects.filter(name__iexact=raw_pickup).first()
@@ -351,9 +351,9 @@ def homepage(request):
         s2 = Stop.objects.filter(name__iexact=raw_destination).first()
         if s2:
             destination_id = s2.id
-    
+
     show_passed = request.GET.get('show_passed', '0') == '1'
-    
+
     # Haversine distance function
     def haversine(lat1, lon1, lat2, lon2):
         R = 6371  # Earth radius in km
@@ -364,50 +364,50 @@ def homepage(request):
         a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         return R * c
-    
+
     if pickup_id and destination_id:
         logger.info(f"Searching buses from pickup {pickup_id} to destination {destination_id}")
-        
+
         # Find all routes containing both stops
         matching_routes = []
         for route in routes:
             stops_objs = route.get_stops_list()
-            
+
             if not stops_objs:
                 logger.warning(f"Route {route.name} has no stops!")
                 continue
-                
+
             stops_ids = [s.id for s in stops_objs]
-            
+
             if pickup_id in stops_ids and destination_id in stops_ids:
                 pickup_idx = stops_ids.index(pickup_id)
                 dest_idx = stops_ids.index(destination_id)
-                
+
                 # Only include if pickup comes before destination
                 if pickup_idx < dest_idx:
                     logger.info(f"Route {route.name} matches: pickup at index {pickup_idx}, dest at {dest_idx}")
                     matching_routes.append((route, pickup_idx, dest_idx, stops_objs))
                 else:
                     logger.info(f"Route {route.name} rejected: wrong order (pickup={pickup_idx}, dest={dest_idx})")
-        
+
         logger.info(f"Found {len(matching_routes)} matching routes")
-        
+
         # Calculate ETA for each bus using Dijkstra
         for route, pickup_idx, dest_idx, stops_objs in matching_routes:
             bus = route.buses.first()
             if not bus:
                 continue
-            
+
             logger.info(f"\n--- Processing Bus {bus.number_plate} on Route {route.name} ---")
-            
+
             available_seats = bus.seats.filter(is_available=True).count()
-            
+
             # Get bus location
             bus_lat = getattr(bus, 'current_lat', None)
             bus_lng = getattr(bus, 'current_lng', None)
-            
+
             logger.info(f"Bus GPS: lat={bus_lat}, lng={bus_lng}")
-            
+
             # ⭐ CRITICAL FIX: If no live GPS data, mark as no_location and skip ETA calculation
             # This prevents showing fake ETA when driver hasn't started tracking
             if bus_lat is None or bus_lng is None:
@@ -422,23 +422,23 @@ def homepage(request):
                     'stops_between': None,
                 })
                 continue  # Skip to next bus - don't calculate fake ETA!
-            
+
             # Calculate ETA using Dijkstra (only if we have real GPS data)
             eta = None
             status = 'unknown'
             nearest_stop = None
             stops_between = 0
-            
+
             try:
                 # Build route graph
                 graph = route.get_stop_graph()
                 logger.info(f"🔍 Graph keys: {list(graph.keys())[:5]}...")
                 logger.info(f"🔍 Graph has {len(graph)} stops")
-                
+
                 if not graph:
                     logger.error(f"Empty graph for route {route.name}")
                     raise Exception("Empty graph")
-                
+
                 # Find nearest stop to bus
                 nearest_stop_idx = min(
                     range(len(stops_objs)), 
@@ -450,7 +450,7 @@ def homepage(request):
                 logger.info(f"🔍 Nearest stop: {nearest_stop.name} (ID: {nearest_stop_id}, Index: {nearest_stop_idx})")
                 logger.info(f"🔍 Pickup stop: {stops_objs[pickup_idx].name} (ID: {stops_objs[pickup_idx].id}, Index: {pickup_idx})")
                 logger.info(f"🔍 Destination stop: {stops_objs[dest_idx].name} (ID: {stops_objs[dest_idx].id}, Index: {dest_idx})")
-                
+
                 from .routing_api import get_road_distance_with_fallback
                 dist_to_nearest, is_road = get_road_distance_with_fallback(
                     bus_lat, bus_lng,
@@ -458,7 +458,7 @@ def homepage(request):
 )
                 distance_type = "🛣️ ROAD" if is_road else "📏 ESTIMATED"
                 logger.info(f"Nearest stop: {nearest_stop.name} (index {nearest_stop_idx}), distance: {dist_to_nearest:.2f} km ({distance_type})")
-                
+
                 # Check if bus already passed pickup
                 if nearest_stop_idx > pickup_idx:
                     logger.warning(f"Bus already PASSED pickup!")
@@ -467,80 +467,79 @@ def homepage(request):
                 else:
                     # Use Dijkstra to find distance along route
                     pickup_stop_id = stops_objs[pickup_idx].id
-                    
+
                     if nearest_stop_id == pickup_stop_id:
                         logger.info(f"🎯 Bus is AT pickup stop! Using direct distance")
-                        
+
                         dist_bus_to_pickup_km, is_road = get_road_distance_with_fallback(
                             bus_lat, bus_lng,
                             stops_objs[pickup_idx].latitude, stops_objs[pickup_idx].longitude
                         )
                         total_distance_km = dist_bus_to_pickup_km
                         stops_between = 0
-                        
+
                         distance_type = "🛣️ ROAD" if is_road else "📏 ESTIMATED"
                         logger.info(f"   Direct distance to pickup: {total_distance_km:.2f} km ({distance_type})")
                     else:    
                         logger.info(f"Running Dijkstra from {nearest_stop_id} to {pickup_stop_id}")
                         dist_along_route_meters, path = dijkstra(graph, nearest_stop_id, pickup_stop_id)
-                        
+
                         logger.info(f"Dijkstra result: distance={dist_along_route_meters}m")
-                        
+
                         if dist_along_route_meters != float('inf') and dist_along_route_meters >= 0:
-                        # Convert bus-to-nearest distance to meters
-                           dist_bus_to_nearest_km = dist_to_nearest 
-                        
-                        # Total distance calculation
-                           dist_along_route_km = dist_along_route_meters / 1000.0
-                           total_distance_km = dist_bus_to_nearest_km + dist_along_route_km
-                        
-                        # Calculate stop delay
-                           stops_between = pickup_idx - nearest_stop_idx
-                           if stops_between < 0:
-                            stops_between = 0
-                            
-                            logger.info(f"   - Distance bus→nearest: {dist_bus_to_nearest_km:.2f} km")
-                            logger.info(f"   - Distance along route: {dist_along_route_km:.2f} km")
+                            # Convert bus-to-nearest distance to meters
+                            dist_bus_to_nearest_km = dist_to_nearest 
+
+                            # Total distance calculation
+                            dist_along_route_km = dist_along_route_meters / 1000.0
+                            total_distance_km = dist_bus_to_nearest_km + dist_along_route_km
+
+                            # Calculate stop delay
+                            stops_between = pickup_idx - nearest_stop_idx
+                            if stops_between < 0:
+                                stops_between = 0
+
+                                logger.info(f"   - Distance bus→nearest: {dist_bus_to_nearest_km:.2f} km")
+                                logger.info(f"   - Distance along route: {dist_along_route_km:.2f} km")
                         else:
                             eta =None
                             status = 'no_route'
                             logger.error("❌ No valid route found")
                             continue
-                    
 
                         # Each stop adds delay (boarding/alighting time)
                     STOP_DELAY_SECONDS = 60  # 1 minute per stop
                     total_stop_delay_seconds = stops_between * STOP_DELAY_SECONDS
                     total_stop_delay_minutes = total_stop_delay_seconds / 60.0
-                        
-                        # Average speed in city traffic (km/h)
+
+                    # Average speed in city traffic (km/h)
                     avg_speed_kmh = 25
-                        
-                        # Calculate base travel time (without stops)
+
+                    # Calculate base travel time (without stops)
                     travel_time_hours = total_distance_km / avg_speed_kmh
                     travel_time_minutes = travel_time_hours * 60
-                        
-                        # Add stop delay to travel time
+
+                    # Add stop delay to travel time
                     total_time_minutes = travel_time_minutes + total_stop_delay_minutes
                     eta = max(1, int(total_time_minutes))
-                        
+
                     logger.info(f"✅ ETA CALCULATED: {eta} min")
                     logger.info(f"   - Travel distance: {total_distance_km:.2f} km")
                     logger.info(f"   - Travel time: {travel_time_minutes:.1f} min")
                     logger.info(f"   - Stops between: {stops_between}")
                     logger.info(f"   - Stop delay: {total_stop_delay_minutes:.1f} min")
-                        
-                        # Determine status based on ETA
+
+                    # Determine status based on ETA
                     if eta <= 2:
-                            status = 'arriving_soon'
+                        status = 'arriving_soon'
                     elif eta <= 10:
-                            status = 'catchable'
+                        status = 'catchable'
                     elif eta <= 30:
-                            status = 'far'
+                        status = 'far'
                     else:
                         eta = None
                         status = 'no_route'
-                        
+
             except Exception as e:
                 logger.error(f"❌ ERROR calculating ETA for bus {bus.number_plate}")
                 logger.error(f"❌ Error type: {type(e).__name__}")
@@ -548,28 +547,61 @@ def homepage(request):
                 logger.exception(f"❌ Full traceback:")
                 eta = None
                 status = 'error'
-            
-            buses_info.append({
-                'route': route,
-                'bus': bus,
-                'eta': eta,
-                'available_seats': available_seats,
-                'status': status,
-                'nearest_stop': nearest_stop.name if nearest_stop else None,
-                'stops_between': stops_between,
-            })
-        
+
+            pickup_to_dest_distance_km = None 
+            try:
+                graph = route.get_stop_graph()
+                pickup_stop_id = stops_objs[pickup_idx].id
+                dest_stop_id = stops_objs[dest_idx].id
+
+                distance_meters, path = dijkstra(graph, pickup_stop_id, dest_stop_id)
+
+                if distance_meters != float('inf') and distance_meters > 0:
+                    pickup_to_dest_distance_km = distance_meters / 1000.0  # Convert to km
+                    logger.info(f"📏 Distance from pickup to destination: {pickup_to_dest_distance_km:.2f} km")
+                    logger.info(f"📍 Route path: {len(path)} stops")
+                else:
+                    logger.warning(f"⚠️ Could not calculate distance from pickup to destination")
+            except Exception as e:
+                logger.error(f"❌ Error calculating pickup-to-dest distance: {e}")
+                pickup_to_dest_distance_km = None
+
+            buses_info.append(
+                {
+                    "route": route,
+                    "bus": bus,
+                    "eta": eta,
+                    "available_seats": available_seats,
+                    "status": status,
+                    "nearest_stop": nearest_stop.name if nearest_stop else None,
+                    "stops_between": stops_between,
+                    "pickup_to_dest_distance": pickup_to_dest_distance_km,
+                }
+            )
+
         # Sort by ETA (nearest first, None values last)
-        buses_info.sort(key=lambda x: (x.get('eta') is None, x.get('eta') or 9999))
-        
-        logger.info(f"\nFinal results: {len(buses_info)} buses")
+        buses_info.sort(
+            key=lambda x: (
+                x.get("pickup_to_dest_distance") is None,  # No distance = last
+                x.get("pickup_to_dest_distance")
+                or float("inf"),  # Primary: shortest distance
+                x.get("eta") is None,  # If equal distance, no ETA = last
+                x.get("eta") or 9999,  # Secondary: fastest ETA
+            )
+        )
+        logger.info(
+            f"\n🏆 Final results ranked by SHORTEST ROUTE (Dijkstra algorithm):"
+        )
         for i, info in enumerate(buses_info):
-            logger.info(f"  Rank {i+1}: {info['bus'].number_plate} - ETA: {info['eta']} min, Status: {info['status']}")
-        
+            dist_str = f"{info.get('pickup_to_dest_distance'):.2f} km" if info.get('pickup_to_dest_distance') else "N/A"
+            eta_str = f"{info['eta']} min" if info.get('eta') else "N/A"
+            logger.info(f"  Rank {i+1}: {info['bus'].number_plate} - Distance: {dist_str}, ETA: {eta_str}")
+            
+
         # Filter out passed buses if not showing them
         if not show_passed:
             buses_info = [b for b in buses_info if b.get('status') != 'passed']
-    
+
     context = {
         'stops': stops,
         'buses_info': buses_info,
@@ -916,7 +948,7 @@ def verify_user_otp(request):
     except Exception as e:
         messages.error(request, f'Registration failed: {str(e)}')
         return redirect('user_register')
-    
+
 def user_forgot_password(request):
     """User forgot password - send OTP"""
     if request.method == 'POST':

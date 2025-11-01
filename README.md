@@ -28,9 +28,8 @@ cd smart_transport
 
 # On Windows:
 venv\Scripts\activate
-
+# On Linux/Mac:
 source venv/bin/activate
-
 
 ### 3. Install Dependencies
 pip install -r requirements.txt

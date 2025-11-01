@@ -1225,6 +1225,7 @@ socket.onopen = function() {
 
     // ⭐ IMPROVED: Handle location updates with smart sequence validation
     if (data.type === 'location_update' && data.lat && data.lng) {
+        window.updateCounter = window.updateCounter || 0;
         window.updateCounter++;
         if (!data.is_historical) {
           window.trackingActive = true;
@@ -1232,7 +1233,11 @@ socket.onopen = function() {
     
     const isHistorical = data.is_historical || false;
     const sequence = data.sequence !== undefined ? data.sequence : 0;
-    
+    if (isHistorical && marker) {
+            console.log('📜 Skipping historical data (marker already exists)');
+            return; // Don't process old data once we have live tracking
+        }
+        
     // ⭐ SMART RESET: If sequence jumps backward significantly, driver restarted
     if (!isHistorical && lastSequence > 0 && sequence > 0 && sequence < lastSequence) {
         const sequenceDrop = lastSequence - sequence;
@@ -1275,13 +1280,14 @@ socket.onopen = function() {
         // First location - create marker
         marker = L.marker([data.lat, data.lng], {icon: createBusDivIcon()}).addTo(map);
         map.setView([data.lat, data.lng], 15);
-        addToTrail(data.lat, data.lng);
+        //addToTrail(data.lat, data.lng);
         
         if (isHistorical) {
             updateStatus('📍 Showing last known location. Waiting for live updates...', 'warning');
         } else {
             updateStatus('✅ Bus location found! Tracking live...', 'success');
         }
+        return;
     } else {
         // ⭐ SKIP animation for historical data
         if (isHistorical) {
@@ -1306,9 +1312,9 @@ socket.onopen = function() {
         const distanceMoved = R * c;
         
         console.log(`🚗 Bus moved: ${distanceMoved.toFixed(1)}m (seq=${sequence})`);
-        
-        // Only animate if moved more than 10 meters
-        if (distanceMoved > 10) {
+
+        // Only animate if moved more than 20 meters
+        if (distanceMoved > 20) {
             animateMarkerTo(marker, newPos);
             addToTrail(data.lat, data.lng);
         } else {

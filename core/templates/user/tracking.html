@@ -765,11 +765,10 @@ function animateMarkerTo(marker, newLatLng, baseDurationMs = 1000) {
     const distance = R * c;
     
     // ⭐ INCREASED THRESHOLD: Only animate movements > 10m (was 0.5m)
-    if (distance < 10) {
+    if (distance < 25) {
         marker.setLatLng([to.lat, to.lng]);
         marker.setIcon(createBusDivIcon());
-        console.log(`⚡ Instant update (${distance.toFixed(1)}m - below 10m threshold)`);
-        return;
+        console.log(`⚡ Instant update (${distance.toFixed(1)}m - below 25m threshold)`);
     }
     
     // ⭐ Calculate bearing only for significant movements
@@ -1150,70 +1149,86 @@ function addBusStopMarkers(coordinates) {
     console.log('Connecting to:', wsUrl);
     const socket = new WebSocket(wsUrl);
     
-    socket.onopen = function() {
-        console.log('✅ Location WebSocket connected');
-        updateStatus('🟢 Connected - Waiting for driver to start tracking...', 'success');
-        lastUpdateTime = Date.now();
-        
-        window.updateCounter = 0;
+    // ⭐ REPLACE WITH THIS IMPROVED CODE:
 
-        // Start checking for stale connections
-        if (connectionCheckInterval) {
-            clearInterval(connectionCheckInterval);
-        }
+socket.onopen = function() {
+    console.log('✅ Location WebSocket connected');
+    updateStatus('🟢 Connected - Waiting for driver to start tracking...', 'success');
+    lastUpdateTime = Date.now();
+    
+    window.updateCounter = 0;
+    window.trackingActive = false;  // ⭐ NEW: Track if driver has started sending locations
+
+    // Start checking for stale connections
+    if (connectionCheckInterval) {
+        clearInterval(connectionCheckInterval);
+    }
+    
+    connectionCheckInterval = setInterval(() => {
+        const timeSinceLastUpdate = (Date.now() - lastUpdateTime) / 1000;
         
-        connectionCheckInterval = setInterval(() => {
-            const timeSinceLastUpdate = (Date.now() - lastUpdateTime) / 1000;
-            
-            if (timeSinceLastUpdate > 30 && marker) {
-                updateStatus('⚠️ Connection may be weak - No updates for 30 seconds', 'warning');
-            } else if (timeSinceLastUpdate > 60) {
+        // ⭐ IMPROVED: Only show warnings if tracking was active
+        // This prevents false warnings before driver starts tracking
+        if (window.trackingActive) {
+            // When driver is stationary, updates come every 10 seconds
+            // So 45 seconds is a reasonable threshold (allowing for 3-4 missed updates)
+            if (timeSinceLastUpdate > 45 && marker) {
+                updateStatus('⚠️ Connection may be weak - No updates for 45 seconds', 'warning');
+            } else if (timeSinceLastUpdate > 90) {
                 updateStatus('❌ Connection lost - Driver may have stopped tracking', 'error');
             }
-        }, 5000); // Check every 5 seconds
-    };
-
-    socket.onmessage = function(event) {
-        const data = JSON.parse(event.data);
-        console.log('📨 WebSocket message:', data);
-        
-        // Handle tracking status updates
-        if (data.type === 'tracking_status') {
-            console.log('📊 Tracking status:', data.status);
-            
-            if (data.status === 'connected') {
-                updateStatus('✅ Driver started tracking! Receiving live updates...', 'success');
-                lastUpdateTime = Date.now();
-                
-                  // ⭐ ADD THIS: Restart connection check interval
-                if (connectionCheckInterval) {
-                    clearInterval(connectionCheckInterval);
-                }
-                connectionCheckInterval = setInterval(() => {
-                    const timeSinceLastUpdate = (Date.now() - lastUpdateTime) / 1000;
-                    if (timeSinceLastUpdate > 30 && marker) {
-                        updateStatus('⚠️ Connection may be weak - No updates for 30 seconds', 'warning');
-                    } else if (timeSinceLastUpdate > 60) {
-                         updateStatus('❌ Connection lost - Driver may have stopped tracking', 'error');
-                    }
-                }, 5000);
-        
-            } else if (data.status === 'disconnected') {
-                updateStatus('⏹️ Driver stopped tracking. Last known location shown on map.', 'warning');
-                
-                // Stop checking for updates
-                if (connectionCheckInterval) {
-                    clearInterval(connectionCheckInterval);
-                    connectionCheckInterval = null;
-                }
-            }
-            return;
         }
+    }, 5000); // Check every 5 seconds
+};
+
+   socket.onmessage = function(event) {
+    const data = JSON.parse(event.data);
+    console.log('📨 WebSocket message:', data);
+    
+    // Handle tracking status updates
+    if (data.type === 'tracking_status') {
+        console.log('📊 Tracking status:', data.status);
         
-        
-// ⭐ IMPROVED: Handle location updates with smart sequence validation
-if (data.type === 'location_update' && data.lat && data.lng) {
-    window.updateCounter++;
+        if (data.status === 'connected') {
+            window.trackingActive = true;  // ⭐ NEW: Mark tracking as active
+            updateStatus('✅ Driver started tracking! Receiving live updates...', 'success');
+            lastUpdateTime = Date.now();
+            
+            // ⭐ IMPROVED: Restart connection check with proper thresholds
+            if (connectionCheckInterval) {
+                clearInterval(connectionCheckInterval);
+            }
+            connectionCheckInterval = setInterval(() => {
+                const timeSinceLastUpdate = (Date.now() - lastUpdateTime) / 1000;
+                
+                // ⭐ Increased thresholds: 45s warning, 90s error
+                // This accounts for stationary driver sending every 10s with some buffer
+                if (window.trackingActive && timeSinceLastUpdate > 45 && marker) {
+                    updateStatus('⚠️ Connection may be weak - No updates for 45 seconds', 'warning');
+                } else if (window.trackingActive && timeSinceLastUpdate > 90) {
+                    updateStatus('❌ Connection lost - Driver may have stopped tracking', 'error');
+                }
+            }, 5000);
+    
+        } else if (data.status === 'disconnected') {
+            window.trackingActive = false;  // ⭐ NEW: Mark tracking as inactive
+            updateStatus('⏹️ Driver stopped tracking. Last known location shown on map.', 'warning');
+            
+            // Stop checking for updates
+            if (connectionCheckInterval) {
+                clearInterval(connectionCheckInterval);
+                connectionCheckInterval = null;
+            }
+        }
+        return;
+    }
+
+    // ⭐ IMPROVED: Handle location updates with smart sequence validation
+    if (data.type === 'location_update' && data.lat && data.lng) {
+        window.updateCounter++;
+        if (!data.is_historical) {
+          window.trackingActive = true;
+        }
     
     const isHistorical = data.is_historical || false;
     const sequence = data.sequence !== undefined ? data.sequence : 0;

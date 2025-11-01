@@ -16,7 +16,8 @@ class LocationConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.bus_id = self.scope["url_route"]["kwargs"].get("bus_id")
         self.group_name = f"bus_{self.bus_id}"
-        self.sequence_number = 0  # ⭐ ADD THIS - Track update 
+        self.sequence_number = 0
+        self.is_driver = False  # ⭐ NEW: Track if this connection is from driver
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
@@ -26,83 +27,106 @@ class LocationConsumer(AsyncWebsocketConsumer):
             f'LocationConsumer connected: bus_id={self.bus_id}, user={getattr(user, "id", None)}'
         )
 
-        # ⭐ NEW: Send last known location immediately when user connects
-        last_location = await self._get_last_bus_location(self.bus_id)
+        # ⭐ NEW: Check if this is the driver connecting (for tracking)
+        if user and getattr(user, "is_authenticated", False):
+            self.is_driver = await self._is_driver_for_bus(user.id, self.bus_id)
+            logger.info(f"Connection is_driver={self.is_driver}")
 
-        if last_location:
-            lat, lng = last_location
-            logger.info(
-            f"📍 Sending last known location to new connection: lat={lat}, lng={lng}"
-             )
+        # ⭐ IMPROVED: For passengers, send last known location
+        # For drivers, send tracking_status only
+        if not self.is_driver:
+            last_location = await self._get_last_bus_location(self.bus_id)
 
-            # Send directly to this connection only
-            await self.send(
-                text_data=json.dumps(
-                    {
-                        "type": "location_update",
-                        "lat": lat,
-                        "lng": lng,
-                        "is_historical": True,  # Flag to indicate this is old data
-                        "sequence": -1,  # ⭐ ADD THIS - Negative for historical
-                    }
+            if last_location:
+                lat, lng = last_location
+                logger.info(
+                    f"📍 Sending last known location to passenger: lat={lat}, lng={lng}"
                 )
-            )
 
-            # Also send tracking status
-            await self.channel_layer.group_send(
-                self.group_name,
-                {
-                    "type": "tracking_status",
-                    "status": "connected",
-                    "message": "Driver started tracking",
-                },
-            )
+                await self.send(
+                    text_data=json.dumps(
+                        {
+                            "type": "location_update",
+                            "lat": lat,
+                            "lng": lng,
+                            "is_historical": True,
+                            "sequence": -1,
+                        }
+                    )
+                )
 
-        else:
-            logger.warning(f"⚠️ No location data found for bus {self.bus_id}")
+                # Send waiting status (waiting for driver to start)
+                await self.send(
+                    text_data=json.dumps(
+                        {
+                            "type": "tracking_status",
+                            "status": "waiting",
+                            "message": "Waiting for driver to start tracking...",
+                        }
+                    )
+                )
+            else:
+                logger.warning(f"⚠️ No location data found for bus {self.bus_id}")
+                await self.send(
+                    text_data=json.dumps(
+                        {
+                            "type": "tracking_status",
+                            "status": "waiting",
+                            "message": "Waiting for driver to start tracking...",
+                        }
+                    )
+                )
 
-            # Send waiting message
-            await self.send(
-            text_data=json.dumps(
-                {
-                    "type": "tracking_status",
-                    "status": "waiting",
-                    "message": "Waiting for driver to start tracking...",
-                }
-            ))
-        
+    @database_sync_to_async
+    def _is_driver_for_bus(self, user_id, bus_id):
+        """Check if this user is the driver for this bus"""
+        try:
+            bus = Bus.objects.select_related("driver__user").filter(id=bus_id).first()
+            if bus and bus.driver and bus.driver.user_id == user_id:
+                return True
+            return False
+        except Exception as e:
+            logger.exception(f"Error checking if user is driver: {e}")
+            return False
+
     @database_sync_to_async
     def _get_last_bus_location(self, bus_id):
         """Get the last known location from database"""
         try:
             bus = Bus.objects.filter(id=bus_id).first()
             if not bus:
-                logger.error(f'Bus not found: id={bus_id}')
+                logger.error(f"Bus not found: id={bus_id}")
                 return None
             if bus.current_lat and bus.current_lng:
-                logger.info(f'✅ Found last location for bus {bus.number_plate}: {bus.current_lat}, {bus.current_lng}')
+                logger.info(
+                    f"✅ Found last location for bus {bus.number_plate}: {bus.current_lat}, {bus.current_lng}"
+                )
                 return (bus.current_lat, bus.current_lng)
             else:
-                logger.warning(f'❌ No location data for bus {bus.number_plate}')
+                logger.warning(f"❌ No location data for bus {bus.number_plate}")
                 return None
         except Exception as e:
-            logger.exception(f'Error retrieving last bus location: {e}')
+            logger.exception(f"Error retrieving last bus location: {e}")
             return None
 
     async def disconnect(self, close_code):
-        # ⭐ CRITICAL FIX: Clear bus location when driver stops tracking
-        # This prevents showing old coordinates as if driver is still tracking
-        await self._clear_bus_location(self.bus_id)
+        # ⭐ CRITICAL FIX: Only clear location if this is the DRIVER disconnecting
+        # Passenger disconnections should NOT clear the bus location
+        if self.is_driver:
+            logger.info(f"🚗 DRIVER disconnecting - clearing bus location")
+            await self._clear_bus_location(self.bus_id)
 
-        # CRITICAL: Notify all connected users that tracking stopped
-        await self.channel_layer.group_send(
-            self.group_name,
-            {
-                "type": "tracking_status",
-                "status": "disconnected",
-                "message": "Driver stopped tracking",
-            },
-        )
+            # Notify all connected passengers that tracking stopped
+            await self.channel_layer.group_send(
+                self.group_name,
+                {
+                    "type": "tracking_status",
+                    "status": "disconnected",
+                    "message": "Driver stopped tracking",
+                },
+            )
+        else:
+            logger.info(f"👤 Passenger disconnecting - keeping bus location")
 
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
         logger.info(
@@ -118,6 +142,11 @@ class LocationConsumer(AsyncWebsocketConsumer):
             return
 
         if data.get("type") == "location":
+            # ⭐ NEW: Only accept location updates from drivers
+            if not self.is_driver:
+                logger.warning(f"Rejecting location update from non-driver")
+                return
+
             lat = data.get("lat")
             lng = data.get("lng")
 
@@ -129,10 +158,21 @@ class LocationConsumer(AsyncWebsocketConsumer):
             saved = await self._save_bus_location(self.bus_id, lat, lng)
 
             if saved:
-                self.sequence_number += 1  # Increment sequence number
+                self.sequence_number += 1
                 logger.info(
-                    f"✅ Location saved: bus_id={self.bus_id}, lat={lat}, lng={lng}"
+                    f"✅ Location saved: bus_id={self.bus_id}, lat={lat}, lng={lng}, seq={self.sequence_number}"
                 )
+
+                # ⭐ IMPROVED: On first location update, send "connected" status
+                if self.sequence_number == 1:
+                    await self.channel_layer.group_send(
+                        self.group_name,
+                        {
+                            "type": "tracking_status",
+                            "status": "connected",
+                            "message": "Driver started tracking",
+                        },
+                    )
 
                 # Broadcast to all connected clients
                 await self.channel_layer.group_send(
@@ -142,7 +182,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
                         "lat": lat,
                         "lng": lng,
                         "is_historical": False,
-                        "sequence": self.sequence_number,  # ⭐ ADD THIS
+                        "sequence": self.sequence_number,
                     },
                 )
             else:
@@ -156,8 +196,8 @@ class LocationConsumer(AsyncWebsocketConsumer):
                     "type": "location_update",
                     "lat": event.get("lat"),
                     "lng": event.get("lng"),
-                    "is_historical": event.get("is_historical", False),  # ⭐ ADD THIS
-                    "sequence": event.get("sequence", 0),  # ⭐ ADD THIS
+                    "is_historical": event.get("is_historical", False),
+                    "sequence": event.get("sequence", 0),
                 }
             )
         )
@@ -202,7 +242,8 @@ class LocationConsumer(AsyncWebsocketConsumer):
             if not bus:
                 logger.error(f"Bus not found: id={bus_id}")
                 return False
-            MIN_MOVEMENT_METERS = 10
+
+            MIN_MOVEMENT_METERS = 25
             if bus.current_lat and bus.current_lng:
                 import math
 
@@ -303,7 +344,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def _clear_bus_location(self, bus_id):
-        """⭐ NEW METHOD: Clear bus location when driver stops tracking"""
+        """Clear bus location when driver stops tracking"""
         try:
             bus = Bus.objects.filter(id=bus_id).first()
             if not bus:

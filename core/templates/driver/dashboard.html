@@ -780,7 +780,7 @@ function detectMovement(lat, lng) {
     );
     
     // Driver is moving if traveled >5m between readings
-    return distance > 5;
+    return distance > 20;
 }
 
 // ⭐ Simple noise filter - only removes small jitter
@@ -791,9 +791,9 @@ function filterJitter(lat, lng) {
     
     const last = recentPositions[recentPositions.length - 1];
     const distance = calculateDistance(last.lat, last.lng, lat, lng);
-    
-    // If movement < 3m, assume it's GPS noise and keep previous position
-    if (distance < 3) {
+
+    // If movement < 15m, assume it's GPS noise and keep previous position
+    if (distance < 15) {
         return { lat: last.lat, lng: last.lng };
     }
     
@@ -849,6 +849,12 @@ socket.onopen = function() {
             console.log(`⚠️ Ignoring low-accuracy GPS: ${accuracy.toFixed(0)}m`);
             return;
         }
+
+        // ⭐ NEW: Completely reject terrible accuracy
+if (accuracy > 100) {
+    console.log(`❌ GPS accuracy too poor: ${accuracy.toFixed(0)}m - skipping completely`);
+    return;
+}
             
             // ⭐ Detect if driver is moving
             const moving = detectMovement(rawLat, rawLng);
@@ -867,7 +873,7 @@ socket.onopen = function() {
                 lat = filtered.lat;
                 lng = filtered.lng;
                 isDriverMoving = false;
-                console.log(`🛑 STATIONARY: Filtered position (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
+                console.log(`🛑 STATIONARY: Using filtered GPS (raw was ${rawLat.toFixed(6)}, ${rawLng.toFixed(6)})`);
             }
             
             // Update last known position

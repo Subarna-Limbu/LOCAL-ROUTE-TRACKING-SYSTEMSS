@@ -820,7 +820,7 @@ function bearingBetween(lat1, lng1, lat2, lng2) {
     let bearing = Math.atan2(y, x) * 180 / Math.PI;
     return (bearing + 360) % 360; // Normalize to 0-360
 }
-// ⭐ NEW: Motion trail effect (fading line behind bus)
+{% comment %} // ⭐ NEW: Motion trail effect (fading line behind bus)
 let trailLine = null;
 let trailPoints = [];
 const MAX_TRAIL_POINTS = 30; // Increased from 20
@@ -882,7 +882,7 @@ function addToTrail(lat, lng) {
         };
         animateDash();
     }
-}
+} {% endcomment %}
     // Draw route line on map
 // Draw route line on map with REAL ROADS
 // Draw route line on map with REAL ROADS
@@ -1181,7 +1181,7 @@ socket.onopen = function() {
     }, 5000); // Check every 5 seconds
 };
 
-   socket.onmessage = function(event) {
+socket.onmessage = function(event) {
     const data = JSON.parse(event.data);
     console.log('📨 WebSocket message:', data);
     
@@ -1190,19 +1190,16 @@ socket.onopen = function() {
         console.log('📊 Tracking status:', data.status);
         
         if (data.status === 'connected') {
-            window.trackingActive = true;  // ⭐ NEW: Mark tracking as active
+            window.trackingActive = true;
             updateStatus('✅ Driver started tracking! Receiving live updates...', 'success');
             lastUpdateTime = Date.now();
             
-            // ⭐ IMPROVED: Restart connection check with proper thresholds
             if (connectionCheckInterval) {
                 clearInterval(connectionCheckInterval);
             }
             connectionCheckInterval = setInterval(() => {
                 const timeSinceLastUpdate = (Date.now() - lastUpdateTime) / 1000;
                 
-                // ⭐ Increased thresholds: 45s warning, 90s error
-                // This accounts for stationary driver sending every 10s with some buffer
                 if (window.trackingActive && timeSinceLastUpdate > 45 && marker) {
                     updateStatus('⚠️ Connection may be weak - No updates for 45 seconds', 'warning');
                 } else if (window.trackingActive && timeSinceLastUpdate > 90) {
@@ -1211,10 +1208,9 @@ socket.onopen = function() {
             }, 5000);
     
         } else if (data.status === 'disconnected') {
-            window.trackingActive = false;  // ⭐ NEW: Mark tracking as inactive
+            window.trackingActive = false;
             updateStatus('⏹️ Driver stopped tracking. Last known location shown on map.', 'warning');
             
-            // Stop checking for updates
             if (connectionCheckInterval) {
                 clearInterval(connectionCheckInterval);
                 connectionCheckInterval = null;
@@ -1223,7 +1219,7 @@ socket.onopen = function() {
         return;
     }
 
-    // ⭐ IMPROVED: Handle location updates with smart sequence validation
+    // Handle location updates
     if (data.type === 'location_update' && data.lat && data.lng) {
         window.updateCounter = window.updateCounter || 0;
         window.updateCounter++;
@@ -1231,116 +1227,115 @@ socket.onopen = function() {
           window.trackingActive = true;
         }
     
-    const isHistorical = data.is_historical || false;
-    const sequence = data.sequence !== undefined ? data.sequence : 0;
-    if (isHistorical && marker) {
+        const isHistorical = data.is_historical || false;
+        const sequence = data.sequence !== undefined ? data.sequence : 0;
+        
+        if (isHistorical && marker) {
             console.log('📜 Skipping historical data (marker already exists)');
-            return; // Don't process old data once we have live tracking
-        }
-        
-    // ⭐ SMART RESET: If sequence jumps backward significantly, driver restarted
-    if (!isHistorical && lastSequence > 0 && sequence > 0 && sequence < lastSequence) {
-        const sequenceDrop = lastSequence - sequence;
-        
-        // If sequence dropped by more than 3, assume driver restarted
-        if (sequenceDrop > 3) {
-            console.log(`🔄 Detected tracking restart: seq dropped from ${lastSequence} to ${sequence}`);
-            lastSequence = -1; // Reset to accept new sequence
-        } else {
-            // Small backward jump = out-of-order packet, reject it
-            console.warn(`⏭️ REJECTED out-of-order update: seq=${sequence}, last=${lastSequence}`);
-            return;
-        }
-    }
-    
-    // ⭐ Normal validation: Reject if not advancing
-    if (!isHistorical && sequence > 0 && sequence <= lastSequence) {
-        console.warn(`⏭️ REJECTED stale update: seq=${sequence}, last=${lastSequence}`);
-        return;
-    }
-    
-    // ⭐ Update sequence tracker (but not for historical data)
-    if (!isHistorical && sequence > 0) {
-        lastSequence = sequence;
-        console.log(`✅ Accepted update: seq=${sequence}`);
-    } else if (isHistorical) {
-        console.log(`📜 Historical data (seq=${sequence})`);
-    }
-    
-    // Validate coordinates
-    if (Math.abs(data.lat) > 90 || Math.abs(data.lng) > 180) {
-        console.error('❌ Invalid coordinates received:', data);
-        return;
-    }
-    
-    console.log(`📍 Update #${window.updateCounter}: lat=${data.lat.toFixed(6)}, lng=${data.lng.toFixed(6)}, seq=${sequence}`);
-    lastUpdateTime = Date.now();
-    
-    if (!marker) {
-        // First location - create marker
-        marker = L.marker([data.lat, data.lng], {icon: createBusDivIcon()}).addTo(map);
-        map.setView([data.lat, data.lng], 15);
-        //addToTrail(data.lat, data.lng);
-        
-        if (isHistorical) {
-            updateStatus('📍 Showing last known location. Waiting for live updates...', 'warning');
-        } else {
-            updateStatus('✅ Bus location found! Tracking live...', 'success');
-        }
-        return;
-    } else {
-        // ⭐ SKIP animation for historical data
-        if (isHistorical) {
-            console.log('📜 Skipping animation for historical data');
             return;
         }
         
-        // Subsequent updates - animate only if significant movement
-        const oldPos = marker.getLatLng();
-        const newPos = [data.lat, data.lng];
-        
-        // Calculate distance moved
-        const R = 6371000;
-        const φ1 = oldPos.lat * Math.PI / 180;
-        const φ2 = newPos[0] * Math.PI / 180;
-        const Δφ = (newPos[0] - oldPos.lat) * Math.PI / 180;
-        const Δλ = (newPos[1] - oldPos.lng) * Math.PI / 180;
-        const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                  Math.cos(φ1) * Math.cos(φ2) *
-                  Math.sin(Δλ/2) * Math.sin(Δλ/2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        const distanceMoved = R * c;
-        
-        console.log(`🚗 Bus moved: ${distanceMoved.toFixed(1)}m (seq=${sequence})`);
-
-        // Only animate if moved more than 20 meters
-        if (distanceMoved > 20) {
-            animateMarkerTo(marker, newPos);
-            addToTrail(data.lat, data.lng);
-        } else {
-            console.log('⏭️ Movement too small, skipping animation');
-        }
-        
-        updateStatus('✅ Live tracking active - Updated just now', 'success');
-    }
-}
-
-        // Handle seat updates
-        if (data.type === 'seat_update') {
-            const seatBtn = document.querySelector(`[data-seat-id="${data.seat_id}"]`);
-            if (seatBtn) {
-                if (data.is_available) {
-                    seatBtn.classList.remove('seat-occupied');
-                    seatBtn.classList.add('seat-available');
-                    seatBtn.title = `Seat ${data.seat_number} - Available`;
-                } else {
-                    seatBtn.classList.remove('seat-available');
-                    seatBtn.classList.add('seat-occupied');
-                    seatBtn.title = `Seat ${data.seat_number} - Occupied`;
-                }
+        // Smart sequence validation
+        if (!isHistorical && lastSequence > 0 && sequence > 0 && sequence < lastSequence) {
+            const sequenceDrop = lastSequence - sequence;
+            
+            if (sequenceDrop > 3) {
+                console.log(`🔄 Detected tracking restart: seq dropped from ${lastSequence} to ${sequence}`);
+                lastSequence = -1;
+            } else {
+                console.warn(`⏭️ REJECTED out-of-order update: seq=${sequence}, last=${lastSequence}`);
+                return;
             }
         }
-    };
+        
+        // Improved validation: Only reject if significantly behind
+        if (!isHistorical && sequence > 0 && lastSequence > 0 && sequence < (lastSequence - 2)) {
+            console.warn(`⏭️ REJECTED very stale update: seq=${sequence}, last=${lastSequence}`);
+            return;
+        }
+        
+        // Update sequence tracker
+        if (!isHistorical && sequence > 0) {
+            lastSequence = sequence;
+            console.log(`✅ Accepted update: seq=${sequence}`);
+        } else if (isHistorical) {
+            console.log(`📜 Historical data (seq=${sequence})`);
+        }
+        
+        // Validate coordinates
+        if (Math.abs(data.lat) > 90 || Math.abs(data.lng) > 180) {
+            console.error('❌ Invalid coordinates received:', data);
+            return;
+        }
+        
+        console.log(`📍 Update #${window.updateCounter}: lat=${data.lat.toFixed(6)}, lng=${data.lng.toFixed(6)}, seq=${sequence}`);
+        lastUpdateTime = Date.now();
+        
+        if (!marker) {
+            // First location - create marker
+            marker = L.marker([data.lat, data.lng], {icon: createBusDivIcon()}).addTo(map);
+            map.setView([data.lat, data.lng], 15);
+            
+            if (isHistorical) {
+                updateStatus('📍 Showing last known location. Waiting for live updates...', 'warning');
+            } else {
+                updateStatus('✅ Bus location found! Tracking live...', 'success');
+            }
+            return;
+        } else {
+            // Skip animation for historical data
+            if (isHistorical) {
+                console.log('📜 Skipping animation for historical data');
+                return;
+            }
+            
+            // Calculate distance moved
+            const oldPos = marker.getLatLng();
+            const newPos = [data.lat, data.lng];
+            
+            const R = 6371000;
+            const φ1 = oldPos.lat * Math.PI / 180;
+            const φ2 = newPos[0] * Math.PI / 180;
+            const Δφ = (newPos[0] - oldPos.lat) * Math.PI / 180;
+            const Δλ = (newPos[1] - oldPos.lng) * Math.PI / 180;
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                      Math.cos(φ1) * Math.cos(φ2) *
+                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            const distanceMoved = R * c;
+            
+            console.log(`🚗 Bus moved: ${distanceMoved.toFixed(1)}m (seq=${sequence})`);
+
+            // Animate only if moved more than 15 meters
+            if (distanceMoved > 15) {
+                animateMarkerTo(marker, newPos);
+            } else {
+                // Small movement - instant update without animation
+                marker.setLatLng(newPos);
+                marker.setIcon(createBusDivIcon());
+                console.log('⏭️ Small movement, instant update');
+            }
+            
+            updateStatus('✅ Live tracking active - Updated just now', 'success');
+        }
+    }
+
+    // Handle seat updates
+    if (data.type === 'seat_update') {
+        const seatBtn = document.querySelector(`[data-seat-id="${data.seat_id}"]`);
+        if (seatBtn) {
+            if (data.is_available) {
+                seatBtn.classList.remove('seat-occupied');
+                seatBtn.classList.add('seat-available');
+                seatBtn.title = `Seat ${data.seat_number} - Available`;
+            } else {
+                seatBtn.classList.remove('seat-available');
+                seatBtn.classList.add('seat-occupied');
+                seatBtn.title = `Seat ${data.seat_number} - Occupied`;
+            }
+        }
+    }
+};
 
     socket.onerror = function(error) {
         console.error('❌ WebSocket error:', error);

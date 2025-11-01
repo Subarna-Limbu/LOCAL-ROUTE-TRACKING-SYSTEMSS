@@ -611,6 +611,8 @@
 
 {% block extra_scripts %}
 <script>
+
+
 {% if route and bus %}
 // ==================== LOCATION TRACKING SYSTEM ====================
 let socket;
@@ -744,9 +746,60 @@ startBtn.addEventListener('click', function() {
         console.log('✅ Geolocation watch started');
     };
     
-// ⭐ Send GPS updates every 1 second (instead of only on movement)
+// ⭐ IMPROVED: Smart GPS filtering - smooth when stationary, raw when moving
 let gpsUpdateInterval = null;
 let lastKnownPosition = null;
+let recentPositions = []; // Track recent positions for movement detection
+const POSITION_BUFFER_SIZE = 3;
+let isDriverMoving = false;
+let gpsReadingsCount = 0; // ⭐ ADD THIS
+let gpsStabilized = false; // ⭐ ADD THIS
+const GPS_WARMUP_READINGS = 5; // ⭐ Wait for 5 readings before sending
+
+// ⭐ Detect if driver is actually moving
+function detectMovement(lat, lng) {
+    recentPositions.push({ lat, lng, timestamp: Date.now() });
+    
+    // Keep only last 3 positions
+    if (recentPositions.length > POSITION_BUFFER_SIZE) {
+        recentPositions.shift();
+    }
+    
+    // Need at least 2 positions to detect movement
+    if (recentPositions.length < 2) {
+        return false;
+    }
+    
+    // Check if driver moved significantly in last 2 readings
+    const last = recentPositions[recentPositions.length - 1];
+    const previous = recentPositions[recentPositions.length - 2];
+    
+    const distance = calculateDistance(
+        previous.lat, previous.lng,
+        last.lat, last.lng
+    );
+    
+    // Driver is moving if traveled >5m between readings
+    return distance > 5;
+}
+
+// ⭐ Simple noise filter - only removes small jitter
+function filterJitter(lat, lng) {
+    if (recentPositions.length === 0) {
+        return { lat, lng };
+    }
+    
+    const last = recentPositions[recentPositions.length - 1];
+    const distance = calculateDistance(last.lat, last.lng, lat, lng);
+    
+    // If movement < 3m, assume it's GPS noise and keep previous position
+    if (distance < 3) {
+        return { lat: last.lat, lng: last.lng };
+    }
+    
+    // Otherwise use the new position (driver is actually moving)
+    return { lat, lng };
+}
 
 socket.onopen = function() {
     console.log('✅ WebSocket connected');
@@ -756,6 +809,10 @@ socket.onopen = function() {
     stopBtn.disabled = false;
     
     lastSentLocation = null;
+    recentPositions = []; // ⭐ Reset
+    isDriverMoving = false;
+        gpsReadingsCount = 0; // ⭐ RESET
+    gpsStabilized = false; // ⭐ RESET
     
     const geoOptions = {
         enableHighAccuracy: true,
@@ -767,17 +824,58 @@ socket.onopen = function() {
     
     geoWatchId = navigator.geolocation.watchPosition(
         function(position) {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
+            const rawLat = position.coords.latitude;
+            const rawLng = position.coords.longitude;
             const accuracy = position.coords.accuracy;
+                     // ⭐ GPS WARMUP PERIOD - Ignore first few readings
+            gpsReadingsCount++;
             
-            // Store latest position
-            lastKnownPosition = { lat, lng, accuracy };
+            if (!gpsStabilized) {
+                if (gpsReadingsCount < GPS_WARMUP_READINGS) {
+                    console.log(`🔄 GPS warming up... (${gpsReadingsCount}/${GPS_WARMUP_READINGS})`);
+                    status.innerHTML = `🔄 GPS warming up... (${gpsReadingsCount}/${GPS_WARMUP_READINGS})`;
+                    return; // ⭐ Skip early readings
+                } else {
+                    gpsStabilized = true;
+                    status.innerHTML = '✅ GPS stabilized! Tracking active.';
+                    console.log('✅ GPS stabilized after warmup period');
+                }
+            }
+
+            // ⭐ Ignore low-accuracy readings (>50m)
+            if (accuracy > 50) {
+                console.log(`⚠️ Ignoring low-accuracy GPS: ${accuracy.toFixed(0)}m`);
+                return;
+            }
             
-            console.log('📍 Location:', {
-                lat: lat.toFixed(6),
-                lng: lng.toFixed(6),
-                accuracy: accuracy.toFixed(0) + 'm'
+            // ⭐ Detect if driver is moving
+            const moving = detectMovement(rawLat, rawLng);
+            
+            let lat, lng;
+            
+            if (moving) {
+                // ⭐ Driver is MOVING - use RAW GPS (no smoothing)
+                lat = rawLat;
+                lng = rawLng;
+                isDriverMoving = true;
+                console.log(`🚗 MOVING: Using raw GPS (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
+            } else {
+                // ⭐ Driver is STATIONARY - filter small jitter
+                const filtered = filterJitter(rawLat, rawLng);
+                lat = filtered.lat;
+                lng = filtered.lng;
+                isDriverMoving = false;
+                console.log(`🛑 STATIONARY: Filtered position (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
+            }
+            
+            // Update last known position
+            lastKnownPosition = { lat, lng, accuracy, moving };
+            
+            console.log('📍 GPS:', {
+                raw: `${rawLat.toFixed(6)}, ${rawLng.toFixed(6)}`,
+                used: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+                accuracy: accuracy.toFixed(0) + 'm',
+                moving: moving ? 'YES' : 'NO'
             });
         },
         function(error) {
@@ -804,22 +902,36 @@ socket.onopen = function() {
         geoOptions
     );
     
-    // ⭐ SEND GPS UPDATES EVERY 1 SECOND
+    // ⭐ ADAPTIVE SENDING: Fast when moving, slow when stationary
     gpsUpdateInterval = setInterval(() => {
+          // ⭐ Don't send until GPS is stabilized
+        if (!gpsStabilized) {
+            return;
+        }
         if (lastKnownPosition && socket.readyState === WebSocket.OPEN) {
-            const { lat, lng } = lastKnownPosition;
+            const { lat, lng, moving } = lastKnownPosition;
             
-            // Check if location changed enough
+            // Determine if we should send this update
             let shouldSend = true;
+            
             if (lastSentLocation) {
                 const distance = calculateDistance(
                     lastSentLocation.lat, lastSentLocation.lng,
                     lat, lng
                 );
                 
-                // Send if moved more than 5 meters (reduced from 10)
-                if (distance < 1) {
-                    shouldSend = false;
+                const timeSinceLastSend = (Date.now() - (lastSentLocation.timestamp || 0)) / 1000;
+                
+                if (moving) {
+                    // ⭐ MOVING: Send if moved >8m OR every 3 seconds
+                    if (distance < 8 && timeSinceLastSend < 3) {
+                        shouldSend = false;
+                    }
+                } else {
+                    // ⭐ STATIONARY: Send only if moved >10m OR every 10 seconds
+                    if (distance < 10 && timeSinceLastSend < 10) {
+                        shouldSend = false;
+                    }
                 }
             }
             
@@ -831,13 +943,18 @@ socket.onopen = function() {
                 };
                 
                 socket.send(JSON.stringify(data));
-                lastSentLocation = { lat, lng };
-                console.log('📤 Location sent (1s interval)');
+                lastSentLocation = { lat, lng, timestamp: Date.now() };
+                
+                if (moving) {
+                    console.log('📤 Sent (MOVING)');
+                } else {
+                    console.log('📤 Sent (STATIONARY)');
+                }
             }
         }
-    }, 1000); // ⭐ 1000ms = 1 second
+    }, 2000); // Check every 2 seconds
     
-    console.log('✅ GPS updates: every 1 second');
+    console.log('✅ GPS: Smart tracking enabled (raw when moving, filtered when stationary)');
 };
     
     socket.onerror = function(error) {

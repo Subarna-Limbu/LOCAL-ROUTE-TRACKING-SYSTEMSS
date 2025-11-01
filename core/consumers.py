@@ -16,6 +16,8 @@ class LocationConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.bus_id = self.scope["url_route"]["kwargs"].get("bus_id")
         self.group_name = f"bus_{self.bus_id}"
+        self.sequence_number = 0  # ⭐ ADD THIS - Track update 
+
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
 
@@ -35,14 +37,16 @@ class LocationConsumer(AsyncWebsocketConsumer):
 
             # Send directly to this connection only
             await self.send(
-            text_data=json.dumps(
-                {
-                    "type": "location_update",
-                    "lat": lat,
-                    "lng": lng,
-                    "is_historical": True,  # Flag to indicate this is old data
-                }
-            ) )
+                text_data=json.dumps(
+                    {
+                        "type": "location_update",
+                        "lat": lat,
+                        "lng": lng,
+                        "is_historical": True,  # Flag to indicate this is old data
+                        "sequence": -1,  # ⭐ ADD THIS - Negative for historical
+                    }
+                )
+            )
 
             # Also send tracking status
             await self.channel_layer.group_send(
@@ -66,6 +70,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
                     "message": "Waiting for driver to start tracking...",
                 }
             ))
+        
     @database_sync_to_async
     def _get_last_bus_location(self, bus_id):
         """Get the last known location from database"""
@@ -124,6 +129,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
             saved = await self._save_bus_location(self.bus_id, lat, lng)
 
             if saved:
+                self.sequence_number += 1  # Increment sequence number
                 logger.info(
                     f"✅ Location saved: bus_id={self.bus_id}, lat={lat}, lng={lng}"
                 )
@@ -136,6 +142,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
                         "lat": lat,
                         "lng": lng,
                         "is_historical": False,
+                        "sequence": self.sequence_number,  # ⭐ ADD THIS
                     },
                 )
             else:
@@ -149,6 +156,8 @@ class LocationConsumer(AsyncWebsocketConsumer):
                     "type": "location_update",
                     "lat": event.get("lat"),
                     "lng": event.get("lng"),
+                    "is_historical": event.get("is_historical", False),  # ⭐ ADD THIS
+                    "sequence": event.get("sequence", 0),  # ⭐ ADD THIS
                 }
             )
         )
@@ -193,7 +202,7 @@ class LocationConsumer(AsyncWebsocketConsumer):
             if not bus:
                 logger.error(f"Bus not found: id={bus_id}")
                 return False
-            MIN_MOVEMENT_METERS = 0.5
+            MIN_MOVEMENT_METERS = 10
             if bus.current_lat and bus.current_lng:
                 import math
 
